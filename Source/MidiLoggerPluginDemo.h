@@ -52,24 +52,26 @@
 
 #include <iterator>
 
+#include "CurveEditor.h"
+
 class MidiQueue
 {
 public:
-    void push (const MidiBuffer& buffer)
+    void push(const MidiBuffer& buffer)
     {
         for (const auto metadata : buffer)
-            fifo.write (1).forEach ([&] (int dest) { messages[(size_t) dest] = metadata.getMessage(); });
+            fifo.write (1).forEach ([&](int dest) { messages[(size_t)dest] = metadata.getMessage(); });
     }
 
     template <typename OutputIt>
-    void pop (OutputIt out)
+    void pop(OutputIt out)
     {
-        fifo.read (fifo.getNumReady()).forEach ([&] (int source) { *out++ = messages[(size_t) source]; });
+        fifo.read (fifo.getNumReady()).forEach ([&](int source) { *out++ = messages[(size_t)source]; });
     }
 
 private:
     static constexpr auto queueSize = 1 << 14;
-    AbstractFifo fifo { queueSize };
+    AbstractFifo fifo{queueSize};
     std::vector<MidiMessage> messages = std::vector<MidiMessage> (queueSize);
 };
 
@@ -78,11 +80,11 @@ class MidiListModel
 {
 public:
     template <typename It>
-    void addMessages (It begin, It end)
+    void addMessages(It begin, It end)
     {
-        const auto numNewMessages = (int) std::distance (begin, end);
+        const auto numNewMessages = (int)std::distance (begin, end);
         const auto numToAdd = juce::jmin (numToStore, numNewMessages);
-        const auto numToRemove = jmax (0, (int) messages.size() + numToAdd - numToStore);
+        const auto numToRemove = jmax (0, (int)messages.size() + numToAdd - numToStore);
         messages.erase (messages.begin(), std::next (messages.begin(), numToRemove));
         messages.insert (messages.end(), std::prev (end, numToAdd), end);
 
@@ -98,9 +100,9 @@ public:
             onChange();
     }
 
-    const MidiMessage& operator[] (size_t ind) const     { return messages[ind]; }
+    const MidiMessage& operator[](size_t ind) const { return messages[ind]; }
 
-    size_t size() const                                  { return messages.size(); }
+    size_t size() const { return messages.size(); }
 
     std::function<void()> onChange;
 
@@ -110,12 +112,13 @@ private:
 };
 
 //==============================================================================
-class MidiTable  : public Component,
-                   private TableListBoxModel
+class MidiTable : public Component,
+                  private TableListBoxModel
 {
 public:
-    MidiTable (MidiListModel& m)
-        : messages (m)
+    MidiTable(MidiListModel& m)
+        :
+        messages (m)
     {
         addAndMakeVisible (table);
 
@@ -126,7 +129,7 @@ public:
             auto header = std::make_unique<TableHeaderComponent>();
             header->addColumn ("Message", messageColumn, 200, 30, -1, TableHeaderComponent::notSortable);
             header->addColumn ("Channel", channelColumn, 100, 30, -1, TableHeaderComponent::notSortable);
-            header->addColumn ("Data",    dataColumn,    200, 30, -1, TableHeaderComponent::notSortable);
+            header->addColumn ("Data", dataColumn, 200, 30, -1, TableHeaderComponent::notSortable);
             return header;
         }());
 
@@ -145,29 +148,34 @@ private:
         dataColumn
     };
 
-    int getNumRows() override          { return (int) messages.size(); }
+    int getNumRows() override { return (int)messages.size(); }
 
-    void paintRowBackground (Graphics&, int, int, int, bool) override {}
-    void paintCell (Graphics&, int, int, int, int, bool)     override {}
+    void paintRowBackground(Graphics&, int, int, int, bool) override
+    {
+    }
 
-    Component* refreshComponentForCell (int rowNumber,
-                                        int columnId,
-                                        bool,
-                                        Component* existingComponentToUpdate) override
+    void paintCell(Graphics&, int, int, int, int, bool) override
+    {
+    }
+
+    Component* refreshComponentForCell(int rowNumber,
+                                       int columnId,
+                                       bool,
+                                       Component* existingComponentToUpdate) override
     {
         delete existingComponentToUpdate;
 
-        const auto index = (int) messages.size() - 1 - rowNumber;
-        const auto message = messages[(size_t) index];
+        const auto index = (int)messages.size() - 1 - rowNumber;
+        const auto message = messages[(size_t)index];
 
         return new Label ({}, [&]
         {
             switch (columnId)
             {
-                case messageColumn: return getEventString (message);
-                case channelColumn: return String (message.getChannel());
-                case dataColumn:    return getDataString (message);
-                default:            break;
+            case messageColumn: return getEventString (message);
+            case channelColumn: return String (message.getChannel());
+            case dataColumn: return getDataString (message);
+            default: break;
             }
 
             jassertfalse;
@@ -175,17 +183,17 @@ private:
         }());
     }
 
-    static String getEventString (const MidiMessage& m)
+    static String getEventString(const MidiMessage& m)
     {
-        if (m.isNoteOn())           return "Note on";
-        if (m.isNoteOff())          return "Note off";
-        if (m.isProgramChange())    return "Program change";
-        if (m.isPitchWheel())       return "Pitch wheel";
-        if (m.isAftertouch())       return "Aftertouch";
-        if (m.isChannelPressure())  return "Channel pressure";
-        if (m.isAllNotesOff())      return "All notes off";
-        if (m.isAllSoundOff())      return "All sound off";
-        if (m.isMetaEvent())        return "Meta event";
+        if (m.isNoteOn()) return "Note on";
+        if (m.isNoteOff()) return "Note off";
+        if (m.isProgramChange()) return "Program change";
+        if (m.isPitchWheel()) return "Pitch wheel";
+        if (m.isAftertouch()) return "Aftertouch";
+        if (m.isChannelPressure()) return "Channel pressure";
+        if (m.isAllNotesOff()) return "All notes off";
+        if (m.isAllSoundOff()) return "All sound off";
+        if (m.isMetaEvent()) return "Meta event";
 
         if (m.isController())
         {
@@ -196,15 +204,21 @@ private:
         return String::toHexString (m.getRawData(), m.getRawDataSize());
     }
 
-    static String getDataString (const MidiMessage& m)
+    static String getDataString(const MidiMessage& m)
     {
-        if (m.isNoteOn())           return MidiMessage::getMidiNoteName (m.getNoteNumber(), true, true, 3) + " Velocity " + String (m.getVelocity());
-        if (m.isNoteOff())          return MidiMessage::getMidiNoteName (m.getNoteNumber(), true, true, 3) + " Velocity " + String (m.getVelocity());
-        if (m.isProgramChange())    return String (m.getProgramChangeNumber());
-        if (m.isPitchWheel())       return String (m.getPitchWheelValue());
-        if (m.isAftertouch())       return MidiMessage::getMidiNoteName (m.getNoteNumber(), true, true, 3) +  ": " + String (m.getAfterTouchValue());
-        if (m.isChannelPressure())  return String (m.getChannelPressureValue());
-        if (m.isController())       return String (m.getControllerValue());
+        if (m.isNoteOn())
+            return MidiMessage::getMidiNoteName (m.getNoteNumber(), true, true, 3) + " Velocity " +
+                    String (m.getVelocity());
+        if (m.isNoteOff())
+            return MidiMessage::getMidiNoteName (m.getNoteNumber(), true, true, 3) + " Velocity " +
+                    String (m.getVelocity());
+        if (m.isProgramChange()) return String (m.getProgramChangeNumber());
+        if (m.isPitchWheel()) return String (m.getPitchWheelValue());
+        if (m.isAftertouch())
+            return MidiMessage::getMidiNoteName (m.getNoteNumber(), true, true, 3) + ": " +
+                    String (m.getAfterTouchValue());
+        if (m.isChannelPressure()) return String (m.getChannelPressureValue());
+        if (m.isController()) return String (m.getControllerValue());
 
         return {};
     }
@@ -214,78 +228,105 @@ private:
 };
 
 //==============================================================================
-class MidiLoggerPluginDemoProcessor  : public AudioProcessor,
-                                       private Timer
+class MidiLoggerPluginDemoProcessor : public AudioProcessor,
+                                      private Timer
 {
 public:
     MidiLoggerPluginDemoProcessor()
-        : AudioProcessor (getBusesLayout())
+        :
+        AudioProcessor (getBusesLayout())
     {
-        state.addChild ({ "uiState", { { "width",  500 }, { "height", 300 } }, {} }, -1, nullptr);
+        state.addChild ({"uiState", {{"width", 500}, {"height", 300}}, {}}, -1, nullptr);
         startTimerHz (60);
     }
 
     ~MidiLoggerPluginDemoProcessor() override { stopTimer(); }
 
-    void processBlock (AudioBuffer<float>& audio,  MidiBuffer& midi) override { process (audio, midi); }
-    void processBlock (AudioBuffer<double>& audio, MidiBuffer& midi) override { process (audio, midi); }
+    void processBlock(AudioBuffer<float>& audio, MidiBuffer& midi) override { process (audio, midi); }
+    void processBlock(AudioBuffer<double>& audio, MidiBuffer& midi) override { process (audio, midi); }
 
-    bool isBusesLayoutSupported (const BusesLayout&) const override           { return true; }
-    bool isMidiEffect() const override                                        { return true; }
-    bool hasEditor() const override                                           { return true; }
-    AudioProcessorEditor* createEditor() override                             { return new Editor (*this); }
+    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+    bool isMidiEffect() const override { return true; }
+    bool hasEditor() const override { return true; }
+    AudioProcessorEditor* createEditor() override { return new Editor (*this); }
 
-    const String getName() const override                                     { return "MIDI Logger"; }
-    bool acceptsMidi() const override                                         { return true; }
-    bool producesMidi() const override                                        { return true; }
-    double getTailLengthSeconds() const override                              { return 0.0; }
+    const String getName() const override { return "MIDI Logger"; }
+    bool acceptsMidi() const override { return true; }
+    bool producesMidi() const override { return true; }
+    double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override                                             { return 0; }
-    int getCurrentProgram() override                                          { return 0; }
-    void setCurrentProgram (int) override                                     {}
-    const String getProgramName (int) override                                { return {}; }
-    void changeProgramName (int, const String&) override                      {}
+    int getNumPrograms() override { return 0; }
+    int getCurrentProgram() override { return 0; }
 
-    void prepareToPlay (double, int) override                                 {}
-    void releaseResources() override                                          {}
+    void setCurrentProgram(int) override
+    {
+    }
 
-    void getStateInformation (MemoryBlock& destData) override
+    const String getProgramName(int) override { return {}; }
+
+    void changeProgramName(int, const String&) override
+    {
+    }
+
+    void prepareToPlay(double, int) override
+    {
+    }
+
+    void releaseResources() override
+    {
+    }
+
+    void getStateInformation(MemoryBlock& destData) override
     {
         if (auto xmlState = state.createXml())
             copyXmlToBinary (*xmlState, destData);
     }
 
-    void setStateInformation (const void* data, int size) override
+    void setStateInformation(const void* data, int size) override
     {
         if (auto xmlState = getXmlFromBinary (data, size))
             state = ValueTree::fromXml (*xmlState);
     }
 
 private:
-    class Editor  : public AudioProcessorEditor,
-                    private Value::Listener
+    class Editor : public AudioProcessorEditor,
+                   private Value::Listener
     {
     public:
-        explicit Editor (MidiLoggerPluginDemoProcessor& ownerIn)
-            : AudioProcessorEditor (ownerIn),
-              owner (ownerIn),
-              table (owner.model)
+        explicit Editor(MidiLoggerPluginDemoProcessor& ownerIn)
+            :
+            AudioProcessorEditor (ownerIn),
+            owner (ownerIn),
+            table (owner.model)
         {
             addAndMakeVisible (table);
             addAndMakeVisible (clearButton);
+            addAndMakeVisible (curveEditor);
+            addAndMakeVisible(midiInputDropdown);
+            addAndMakeVisible(midiOutputDropdown);
 
             setResizable (true, true);
-            lastUIWidth .referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("width",  nullptr));
+            lastUIWidth.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("width", nullptr));
             lastUIHeight.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("height", nullptr));
             setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
 
-            lastUIWidth. addListener (this);
+            lastUIWidth.addListener (this);
             lastUIHeight.addListener (this);
 
             clearButton.onClick = [&] { owner.model.clear(); };
+
+            // Setup input/output dropdowns
+            for(auto i = 0; i < 128; i++)
+            {
+                const auto* const controllerName = MidiMessage::getControllerName(i);
+                if (controllerName) {
+                    midiInputDropdown.addItem(controllerName, i + 1);
+                    midiOutputDropdown.addItem(controllerName, i + 1);
+                }
+            }
         }
 
-        void paint (Graphics& g) override
+        void paint(Graphics& g) override
         {
             g.fillAll (getLookAndFeel().findColour (ResizableWindow::backgroundColourId));
         }
@@ -294,15 +335,20 @@ private:
         {
             auto bounds = getLocalBounds();
 
+            auto inputMidiBounds = bounds.removeFromTop (50);
+            midiInputDropdown.setBounds (inputMidiBounds.withRight (getWidth() / 2));
+            midiOutputDropdown.setBounds (inputMidiBounds.withLeft (getWidth() / 2));
             clearButton.setBounds (bounds.removeFromBottom (30).withSizeKeepingCentre (50, 24));
+            curveEditor.setBounds (bounds.removeFromBottom (bounds.proportionOfHeight (0.5f)).withTrimmedLeft (10).
+                                          withTrimmedRight (10));
             table.setBounds (bounds);
 
-            lastUIWidth  = getWidth();
+            lastUIWidth = getWidth();
             lastUIHeight = getHeight();
         }
 
     private:
-        void valueChanged (Value&) override
+        void valueChanged(Value&) override
         {
             setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
         }
@@ -310,7 +356,10 @@ private:
         MidiLoggerPluginDemoProcessor& owner;
 
         MidiTable table;
-        TextButton clearButton { "Clear" };
+        TextButton clearButton{"Clear"};
+        aas::CurveEditor<float> curveEditor{0.0f, 1.0f, -1.0f, 9.0f};
+        juce::ComboBox midiInputDropdown;
+        juce::ComboBox midiOutputDropdown;
 
         Value lastUIWidth, lastUIHeight;
     };
@@ -323,12 +372,12 @@ private:
     }
 
     template <typename Element>
-    void process (AudioBuffer<Element>& audio, MidiBuffer& midi)
+    void process(AudioBuffer<Element>& audio, MidiBuffer& midi)
     {
-        const auto message = juce::MidiMessage::controllerEvent(1, 7, 99); // TODO
+        const auto message = juce::MidiMessage::controllerEvent (1, 7, 99); // TODO
         const auto timestamp = message.getTimeStamp();
         const auto sampleNumber = (int)(timestamp * getSampleRate());
-        midi.addEvent(message, sampleNumber);
+        midi.addEvent (message, sampleNumber);
         audio.clear();
         queue.push (midi);
     }
@@ -336,14 +385,15 @@ private:
     static BusesProperties getBusesLayout()
     {
         // Live doesn't like to load midi-only plugins, so we add an audio output there.
-        return PluginHostType().isAbletonLive() ? BusesProperties().withOutput ("out", AudioChannelSet::stereo())
-                                                : BusesProperties();
+        return PluginHostType().isAbletonLive()
+                   ? BusesProperties().withOutput ("out", AudioChannelSet::stereo())
+                   : BusesProperties();
     }
 
-    ValueTree state { "state" };
+    ValueTree state{"state"};
     MidiQueue queue;
     MidiListModel model; // The data to show in the UI. We keep it around in the processor so that
-                         // the view is persistent even when the plugin UI is closed and reopened.
+    // the view is persistent even when the plugin UI is closed and reopened.
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiLoggerPluginDemoProcessor)
 };
