@@ -4,19 +4,60 @@
 namespace aas
 {
     template <typename T>
-    class CurveEditor : public juce::Component
+    struct CurveEditorModel
     {
         using PointType = juce::Point<T>;
-    public:
-        explicit CurveEditor(float minX = 0.0f, float maxX = 1.0f, float minY = 0.0f, float maxY = 1.0f):
+
+        explicit CurveEditorModel(T minX, T maxX, T minY, T maxY) :
             minX (minX),
             maxX (maxX),
             minY (minY),
             maxY (maxY)
         {
-            points.emplace_back (PointType{0.0f, 0.0f});
-            points.emplace_back (PointType{0.5f, 0.5f});
-            points.emplace_back (PointType{1.0f, 1.0f});
+            points.emplace_back (PointType{minX, minY});
+            points.emplace_back (PointType{minX + (maxX - minX) * (T)0.5, minY + (maxY - minY) * (T)0.5});
+            points.emplace_back (PointType{maxX, maxY});
+        }
+
+        /**
+         * Map an input value onto the curve
+         */
+        T compute(T input);
+
+        T minX, maxX;
+        T minY, maxY;
+        std::vector<PointType> points;
+    };
+
+    template <typename T>
+    T CurveEditorModel<T>::compute(T input)
+    {
+        jassert (points.size() > 1);
+        for (size_t i = 1; i < points.size(); i++)
+        {
+            const auto& lastPoint = points[i - 1];
+            const auto& point = points[i];
+
+            jassert (lastPoint.x <= point.x);
+
+            if (input <= point.x)
+            {
+                const auto slope = (point.y - lastPoint.y) / (point.x - lastPoint.x);
+                return slope * (input - lastPoint.x) + lastPoint.y;
+            }
+        }
+        jassertfalse; // TODO
+        return 0.0f;
+    }
+
+    template <typename T>
+    class CurveEditor : public juce::Component
+    {
+        using PointType = typename CurveEditorModel<T>::PointType;
+    public:
+        explicit CurveEditor(CurveEditorModel<T>& model) :
+            model (model)
+        {
         }
 
         void paint(Graphics& g) override;
@@ -29,79 +70,99 @@ namespace aas
 
         void addPoint(const PointType& p);
 
-        /**
-         * Map an input value onto the curve
-         */
-        float compute(T input);
-
+    private:
         PointType transformPointToScreenSpace(const PointType& p) const;
         PointType transformPointFromScreenSpace(const PointType& p) const;
         const float pointSize = 10.0f;
-        float minX;
-        float maxX;
-        float minY;
-        float maxY;
-    private:
-        std::vector<PointType> points;
-        PointType* selectedPoint = nullptr;
         juce::AffineTransform screenSpaceTransform;
+        PointType* selectedPoint = nullptr;
+        CurveEditorModel<T>& model;
     };
 
     template <typename T>
     void CurveEditor<T>::paint(Graphics& g)
     {
-        g.setColour(Colours::black);
-        g.fillRect(0, 0, getWidth(), getHeight());
+        g.setColour (Colours::black);
+        g.fillRect (0, 0, getWidth(), getHeight());
 
+        // Draw the actual curve
         Path curve;
-        for (size_t i = 0; i < points.size(); i++)
+        for (size_t i = 0; i < model.points.size(); i++)
         {
-            const auto transformedPoint = transformPointToScreenSpace(points[i]);
+            const auto transformedPoint = transformPointToScreenSpace (model.points[i]);
             if (i == 0)
-                curve.startNewSubPath(transformedPoint);
+                curve.startNewSubPath (transformedPoint);
             else
-                curve.lineTo(transformedPoint);
-            if (selectedPoint == &points[i]) {
-                g.setColour(Colours::red);
-                g.fillEllipse(transformedPoint.x - pointSize * 0.5f,
-                              transformedPoint.y - pointSize * 0.5f,
-                              pointSize, pointSize);
+                curve.lineTo (transformedPoint);
+            if (selectedPoint == &model.points[i])
+            {
+                g.setColour (Colours::red);
+                g.fillEllipse (transformedPoint.x - pointSize * 0.5f,
+                               transformedPoint.y - pointSize * 0.5f,
+                               pointSize, pointSize);
             }
-            else {
-                g.setColour(Colours::goldenrod);
-                g.drawEllipse(transformedPoint.x - pointSize * 0.5f,
-                              transformedPoint.y - pointSize * 0.5f,
-                              pointSize, pointSize, 3.0f);
+            else
+            {
+                g.setColour (Colours::goldenrod);
+                g.drawEllipse (transformedPoint.x - pointSize * 0.5f,
+                               transformedPoint.y - pointSize * 0.5f,
+                               pointSize, pointSize, 3.0f);
             }
         }
 
-        g.setColour(Colours::whitesmoke);
-        g.strokePath(curve, PathStrokeType(1.0f));
+        g.setColour (Colours::whitesmoke);
+        g.strokePath (curve, PathStrokeType (1.0f));
 
-        // TODO
+        // Draw reference line from the mouse pointer to the curve
         const PointType screenSpaceMousePt = getMouseXYRelative().toFloat();
-        if (contains(getMouseXYRelative())) {
-            const auto modelSpaceMousePt = transformPointFromScreenSpace(screenSpaceMousePt);
-            const auto yValue = PointType(modelSpaceMousePt.x, compute(modelSpaceMousePt.x));
-            const auto yValueScreenSpace = transformPointToScreenSpace(yValue);
-            g.setColour(Colours::red);
+        g.setColour (Colours::red);
+        if (contains (getMouseXYRelative()))
+        {
+            const auto modelSpaceMousePt = transformPointFromScreenSpace (screenSpaceMousePt);
+            const auto yValue = PointType (modelSpaceMousePt.x, model.compute (modelSpaceMousePt.x));
+            const auto yValueScreenSpace = transformPointToScreenSpace (yValue);
 
-            g.drawVerticalLine(static_cast<int> (screenSpaceMousePt.x), jmin(yValueScreenSpace.y, screenSpaceMousePt.y), jmax(yValueScreenSpace.y, screenSpaceMousePt.y));
+            g.drawVerticalLine (static_cast<int> (screenSpaceMousePt.x),
+                                jmin (yValueScreenSpace.y, screenSpaceMousePt.y),
+                                jmax (yValueScreenSpace.y, screenSpaceMousePt.y));
+
+            // TODO: CurveEditor needs to scale the output from [0,1] to [0,255]
+            std::ostringstream ostr;
+            ostr << std::fixed << std::setprecision (0) << "[" << yValue.x << ", " << yValue.y << "]";
+            g.drawSingleLineText (ostr.str(), (int)screenSpaceMousePt.x, (int)screenSpaceMousePt.y);
+        }
+
+        // Draw grid
+        auto numXTicks = 10; // TODO: Make these editable parameters
+        auto numYTicks = 10;
+        const Colour slightWhite = Colour::fromRGBA (200, 200, 200, 100);
+        g.setColour (slightWhite);
+        for (auto i = 0; i < numXTicks; i++)
+        {
+            T currX = (model.maxX - model.minX) / static_cast<T> (numXTicks) * static_cast<T> (i) + model.minX;
+            PointType screenX = transformPointToScreenSpace (PointType (currX, 0));
+            g.drawVerticalLine (static_cast<int> (screenX.x), 0.0f, static_cast<float> (getHeight()));
+        }
+        for (auto i = 0; i < numYTicks; i++)
+        {
+            T currY = (model.maxY - model.minY) / static_cast<T> (numYTicks) * static_cast<T> (i) + model.minY;
+            PointType screenY = transformPointToScreenSpace (PointType (0, currY));
+            g.drawHorizontalLine (static_cast<int> (screenY.y), 0.0f, static_cast<float> (getWidth()));
         }
     }
 
     template <typename T>
     void CurveEditor<T>::mouseDown(const MouseEvent& event)
     {
-        jassert(!points.empty());
+        jassert (!model.points.empty());
 
         const auto mousePt = event.getPosition().toFloat();
         PointType* closestPoint = nullptr;
         float closestPointDist = 0;
         const float distanceThreshold = pointSize * 2.0f;
-        for (auto& p : points)
+        for (auto& p : model.points)
         {
-            const auto dist = transformPointToScreenSpace(p).getDistanceFrom(mousePt);
+            const auto dist = transformPointToScreenSpace (p).getDistanceFrom (mousePt);
             if (dist < closestPointDist || closestPoint == nullptr)
             {
                 closestPoint = &p;
@@ -121,34 +182,33 @@ namespace aas
     {
         if (selectedPoint)
         {
-            // TODO: Sort points
             const PointType mousePt = event.getPosition().toFloat();
-            const PointType modelSpaceMousePt = transformPointFromScreenSpace(mousePt);
+            const PointType modelSpaceMousePt = transformPointFromScreenSpace (mousePt);
 
             // Adjust selected point within the X and Y boundaries
             *selectedPoint = *selectedPoint + 0.9f * (modelSpaceMousePt - *selectedPoint);
-            selectedPoint->setX(jlimit(minX, maxX, selectedPoint->getX()));
-            selectedPoint->setY(jlimit(minY, maxY, selectedPoint->getY()));
+            selectedPoint->setX (jlimit (model.minX, model.maxX, selectedPoint->getX()));
+            selectedPoint->setY (jlimit (model.minY, model.maxY, selectedPoint->getY()));
 
             // Lock the X position of the first and last points
-            if (selectedPoint == &points.front())
+            if (selectedPoint == &model.points.front())
             {
-                selectedPoint->setX(minX);
+                selectedPoint->setX (model.minX);
             }
-            else if (selectedPoint == &points.back())
+            else if (selectedPoint == &model.points.back())
             {
-                selectedPoint->setX(maxX);
+                selectedPoint->setX (model.maxX);
             }
 
             // Allow points to be seamlessly dragged passed each other
-            if (selectedPoint > &points.front() && selectedPoint->x < (selectedPoint - 1)->x)
+            if (selectedPoint > &model.points.front() && selectedPoint->x < (selectedPoint - 1)->x)
             {
-                std::swap(*selectedPoint, *(selectedPoint - 1));
+                std::swap (*selectedPoint, *(selectedPoint - 1));
                 selectedPoint = selectedPoint - 1;
             }
-            else if (selectedPoint < &points.back() && selectedPoint->x >(selectedPoint + 1)->x)
+            else if (selectedPoint < &model.points.back() && selectedPoint->x > (selectedPoint + 1)->x)
             {
-                std::swap(*selectedPoint, *(selectedPoint + 1));
+                std::swap (*selectedPoint, *(selectedPoint + 1));
                 selectedPoint = selectedPoint + 1;
             }
             repaint();
@@ -165,8 +225,8 @@ namespace aas
     void CurveEditor<T>::mouseDoubleClick(const MouseEvent& event)
     {
         PointType mousePt = event.getPosition().toFloat();
-        const PointType modelSpaceMousePt = transformPointFromScreenSpace(mousePt);
-        addPoint(modelSpaceMousePt);
+        const PointType modelSpaceMousePt = transformPointFromScreenSpace (mousePt);
+        addPoint (modelSpaceMousePt);
     }
 
     template <typename T>
@@ -179,20 +239,21 @@ namespace aas
     void CurveEditor<T>::resized()
     {
         screenSpaceTransform = AffineTransform();
-        screenSpaceTransform = screenSpaceTransform.translated(-minX, -maxY);
-        screenSpaceTransform = screenSpaceTransform.scaled(static_cast<float> (getWidth()) / (maxX - minX),
-                                                           static_cast<float> (getHeight()) / (minY - maxY));
+        screenSpaceTransform = screenSpaceTransform.translated (-model.minX, -model.maxY);
+        screenSpaceTransform = screenSpaceTransform.scaled (static_cast<float> (getWidth()) / (model.maxX - model.minX),
+                                                            static_cast<float> (getHeight()) / (model.minY - model.maxY
+                                                            ));
     }
 
     template <typename T>
     void CurveEditor<T>::addPoint(const PointType& p)
     {
-        for (size_t i = 0; i < points.size(); i++)
+        for (size_t i = 0; i < model.points.size(); i++)
         {
-            const auto& point = points[i];
+            const auto& point = model.points[i];
             if (p.x <= point.x)
             {
-                points.emplace(points.begin() + i, p);
+                model.points.emplace (model.points.begin() + i, p);
                 repaint();
                 return;
             }
@@ -200,35 +261,14 @@ namespace aas
     }
 
     template <typename T>
-    float CurveEditor<T>::compute(T input)
-    {
-        jassert(points.size() > 1);
-        for (size_t i = 1; i < points.size(); i++)
-        {
-            const auto& lastPoint = points[i - 1];
-            const auto& point = points[i];
-
-            jassert(lastPoint.x <= point.x);
-
-            if (input <= point.x)
-            {
-                const auto slope = (point.y - lastPoint.y) / (point.x - lastPoint.x);
-                return slope * (input - lastPoint.x) + lastPoint.y;
-            }
-        }
-        jassertfalse; // TODO
-        return 0.0f;
-    }
-
-    template <typename T>
     typename CurveEditor<T>::PointType CurveEditor<T>::transformPointToScreenSpace(const PointType& p) const
     {
-        return p.transformedBy(screenSpaceTransform);
+        return p.transformedBy (screenSpaceTransform);
     }
 
     template <typename T>
     typename CurveEditor<T>::PointType CurveEditor<T>::transformPointFromScreenSpace(const PointType& p) const
     {
-        return p.transformedBy(screenSpaceTransform.inverted());
+        return p.transformedBy (screenSpaceTransform.inverted());
     }
 }

@@ -111,6 +111,11 @@ private:
     std::vector<MidiMessage> messages;
 };
 
+struct DropdownListModel
+{
+    int selectedItemId;
+};
+
 //==============================================================================
 class MidiTable : public Component,
                   private TableListBoxModel
@@ -129,7 +134,7 @@ public:
             auto header = std::make_unique<TableHeaderComponent>();
             header->addColumn ("Message", messageColumn, 200, 30, -1, TableHeaderComponent::notSortable);
             header->addColumn ("Channel", channelColumn, 100, 30, -1, TableHeaderComponent::notSortable);
-            header->addColumn ("Data", dataColumn, 200, 30, -1, TableHeaderComponent::notSortable);
+            header->addColumn ("Data (In)", dataColumn, 200, 30, -1, TableHeaderComponent::notSortable);
             return header;
         }());
 
@@ -234,7 +239,8 @@ class MidiLoggerPluginDemoProcessor : public AudioProcessor,
 public:
     MidiLoggerPluginDemoProcessor()
         :
-        AudioProcessor (getBusesLayout())
+        AudioProcessor (getBusesLayout()),
+        curveEditorModel (0.0f, 127.0f, 0.0f, 127.0f)
     {
         state.addChild ({"uiState", {{"width", 500}, {"height", 300}}, {}}, -1, nullptr);
         startTimerHz (60);
@@ -297,7 +303,8 @@ private:
             :
             AudioProcessorEditor (ownerIn),
             owner (ownerIn),
-            table (owner.model)
+            table (owner.midiListModel),
+            curveEditor (ownerIn.curveEditorModel)
         {
             addAndMakeVisible (table);
             addAndMakeVisible (clearButton);
@@ -313,7 +320,9 @@ private:
             lastUIWidth.addListener (this);
             lastUIHeight.addListener (this);
 
-            clearButton.onClick = [&] { owner.model.clear(); };
+            clearButton.onClick = [&] { owner.midiListModel.clear(); };
+            midiInputDropdown.onChange = [&] { owner.midiInputModel.selectedItemId = midiInputDropdown.getSelectedId(); };
+            midiOutputDropdown.onChange = [&] { owner.midiOutputModel.selectedItemId = midiOutputDropdown.getSelectedId(); };
 
             // Setup input/output dropdowns
             for(auto i = 0; i < 128; i++)
@@ -335,7 +344,7 @@ private:
         {
             auto bounds = getLocalBounds();
 
-            auto inputMidiBounds = bounds.removeFromTop (50);
+            const auto inputMidiBounds = bounds.removeFromTop (50);
             midiInputDropdown.setBounds (inputMidiBounds.withRight (getWidth() / 2));
             midiOutputDropdown.setBounds (inputMidiBounds.withLeft (getWidth() / 2));
             clearButton.setBounds (bounds.removeFromBottom (30).withSizeKeepingCentre (50, 24));
@@ -357,7 +366,7 @@ private:
 
         MidiTable table;
         TextButton clearButton{"Clear"};
-        aas::CurveEditor<float> curveEditor{0.0f, 1.0f, -1.0f, 9.0f};
+        aas::CurveEditor<float> curveEditor;
         juce::ComboBox midiInputDropdown;
         juce::ComboBox midiOutputDropdown;
 
@@ -368,18 +377,38 @@ private:
     {
         std::vector<MidiMessage> messages;
         queue.pop (std::back_inserter (messages));
-        model.addMessages (messages.begin(), messages.end());
+        midiListModel.addMessages (messages.begin(), messages.end());
     }
 
     template <typename Element>
     void process(AudioBuffer<Element>& audio, MidiBuffer& midi)
     {
-        const auto message = juce::MidiMessage::controllerEvent (1, 7, 99); // TODO
-        const auto timestamp = message.getTimeStamp();
-        const auto sampleNumber = (int)(timestamp * getSampleRate());
-        midi.addEvent (message, sampleNumber);
+        const int CC_IN = midiInputModel.selectedItemId - 1; // TODO: May have threading issues
+        const int CC_OUT = midiOutputModel.selectedItemId - 1;
+
         audio.clear();
-        queue.push (midi);
+
+        MidiBuffer newMidiBuffer;
+        for (auto it : midi)
+        {
+            MidiMessage msg = it.getMessage();
+            const auto timestamp = msg.getTimeStamp();
+            const auto sampleNumber = (int)(timestamp * getSampleRate());
+            if (msg.isController() && msg.getControllerNumber() == CC_IN)
+            {
+                // Map original CC value to new CC value using data from CurveEditor
+                const auto value = msg.getControllerValue();
+                const auto newValue = static_cast<int> (curveEditorModel.compute (static_cast<float> (value)));
+                const auto newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, newValue);
+                newMidiBuffer.addEvent (newMsg, sampleNumber);
+            }
+            else
+            {
+                newMidiBuffer.addEvent (msg, sampleNumber);
+            }
+        }
+        midi.swapWith(newMidiBuffer);
+        queue.push(midi);
     }
 
     static BusesProperties getBusesLayout()
@@ -392,8 +421,11 @@ private:
 
     ValueTree state{"state"};
     MidiQueue queue;
-    MidiListModel model; // The data to show in the UI. We keep it around in the processor so that
-    // the view is persistent even when the plugin UI is closed and reopened.
+    // The data to show in the UI. We keep it around in the processor so that the view is persistent even when the plugin UI is closed and reopened.
+    MidiListModel midiListModel;
+    DropdownListModel midiOutputModel;
+    DropdownListModel midiInputModel;
+    aas::CurveEditorModel<float> curveEditorModel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiLoggerPluginDemoProcessor)
 };
