@@ -244,7 +244,7 @@ private:
             {
                 // Map original CC value to new CC value using data from CurveEditor
                 const auto value = msg.getControllerValue();
-                curveEditorModel.lastInputValue.setValue(value);
+                curveEditorModel.lastInputValue.setValue (value);
 
                 const auto newValue = static_cast<int> (curveEditorModel.compute (static_cast<float> (value)));
                 const auto newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, newValue);

@@ -13,7 +13,7 @@ namespace aas
             maxX (maxX),
             minY (minY),
             maxY (maxY),
-            lastInputValue(T(0))
+            lastInputValue (T (0))
         {
             points.emplace_back (PointType{minX, minY});
             points.emplace_back (PointType{minX + (maxX - minX) * (T)0.5, minY + (maxY - minY) * (T)0.5});
@@ -61,7 +61,7 @@ namespace aas
             model (model)
         {
             lastInputValue.referTo (model.lastInputValue);
-            lastInputValue.addListener(this);
+            lastInputValue.addListener (this);
         }
 
         void paint(Graphics& g) override;
@@ -126,25 +126,27 @@ namespace aas
         if (contains (getMouseXYRelative()))
         {
             const auto modelSpaceMousePt = transformPointFromScreenSpace (screenSpaceMousePt);
-            const auto yValue = PointType (modelSpaceMousePt.x, model.compute (modelSpaceMousePt.x));
-            const auto yValueScreenSpace = transformPointToScreenSpace (yValue);
+            const auto modelSpaceCurvePt = PointType (modelSpaceMousePt.x, model.compute (modelSpaceMousePt.x));
+            const auto screenSpaceCurvePt = transformPointToScreenSpace (modelSpaceCurvePt);
 
             g.drawVerticalLine (static_cast<int> (screenSpaceMousePt.x),
-                                jmin (yValueScreenSpace.y, screenSpaceMousePt.y),
-                                jmax (yValueScreenSpace.y, screenSpaceMousePt.y));
+                                jmin (screenSpaceCurvePt.y, screenSpaceMousePt.y),
+                                jmax (screenSpaceCurvePt.y, screenSpaceMousePt.y));
 
-            // TODO: CurveEditor needs to scale the output from [0,1] to [0,255]
             std::ostringstream ostr;
-            ostr << std::fixed << std::setprecision (0) << "[" << yValue.x << ", " << yValue.y << "]";
+            ostr << std::fixed << std::setprecision (0) << "[" << modelSpaceCurvePt.x << ", " << modelSpaceCurvePt.y << "]";
             g.drawSingleLineText (ostr.str(), (int)screenSpaceMousePt.x, (int)screenSpaceMousePt.y);
         }
 
         // Draw reference line for most recent input/output
-        g.setColour(Colours::lightblue);
-        T outputValue = model.compute(lastInputValue.getValue());
-        g.drawVerticalLine (static_cast<int> (transformPointToScreenSpace (PointType(lastInputValue.getValue(), 0.0f)).x),
-                            static_cast<float> (transformPointToScreenSpace (PointType(0.0f, outputValue)).y),
-                            static_cast<float>(getHeight()));
+        g.setColour (Colours::lightblue);
+        T inputValue = lastInputValue.getValue();
+        T outputValue = model.compute (inputValue);
+        const auto screenSpaceCurvePt = transformPointToScreenSpace (PointType (inputValue, outputValue));
+        g.drawVerticalLine (static_cast<int> (screenSpaceCurvePt.x), screenSpaceCurvePt.y, static_cast<float> (getHeight()));
+        std::ostringstream ostr;
+        ostr << std::fixed << std::setprecision (0) << "[" << inputValue << ", " << outputValue << "]";
+        g.drawSingleLineText (ostr.str(), (int)screenSpaceCurvePt.x, (int)screenSpaceCurvePt.y);
 
 
         // Draw grid
