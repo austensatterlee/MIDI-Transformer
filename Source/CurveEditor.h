@@ -12,7 +12,8 @@ namespace aas
             minX (minX),
             maxX (maxX),
             minY (minY),
-            maxY (maxY)
+            maxY (maxY),
+            lastInputValue(T(0))
         {
             points.emplace_back (PointType{minX, minY});
             points.emplace_back (PointType{minX + (maxX - minX) * (T)0.5, minY + (maxY - minY) * (T)0.5});
@@ -27,6 +28,7 @@ namespace aas
         T minX, maxX;
         T minY, maxY;
         std::vector<PointType> points;
+        juce::Value lastInputValue;
     };
 
     template <typename T>
@@ -51,13 +53,15 @@ namespace aas
     }
 
     template <typename T>
-    class CurveEditor : public juce::Component
+    class CurveEditor : public juce::Component, juce::Value::Listener
     {
         using PointType = typename CurveEditorModel<T>::PointType;
     public:
         explicit CurveEditor(CurveEditorModel<T>& model) :
             model (model)
         {
+            lastInputValue.referTo (model.lastInputValue);
+            lastInputValue.addListener(this);
         }
 
         void paint(Graphics& g) override;
@@ -67,16 +71,19 @@ namespace aas
         void mouseDoubleClick(const MouseEvent& event) override;
         void mouseMove(const MouseEvent& event) override;
         void resized() override;
+        void valueChanged(Value& value) override;
 
         void addPoint(const PointType& p);
 
     private:
         PointType transformPointToScreenSpace(const PointType& p) const;
         PointType transformPointFromScreenSpace(const PointType& p) const;
+    private:
         const float pointSize = 10.0f;
         juce::AffineTransform screenSpaceTransform;
         PointType* selectedPoint = nullptr;
         CurveEditorModel<T>& model;
+        Value lastInputValue;
     };
 
     template <typename T>
@@ -131,6 +138,14 @@ namespace aas
             ostr << std::fixed << std::setprecision (0) << "[" << yValue.x << ", " << yValue.y << "]";
             g.drawSingleLineText (ostr.str(), (int)screenSpaceMousePt.x, (int)screenSpaceMousePt.y);
         }
+
+        // Draw reference line for most recent input/output
+        g.setColour(Colours::lightblue);
+        T outputValue = model.compute(lastInputValue.getValue());
+        g.drawVerticalLine (static_cast<int> (transformPointToScreenSpace (PointType(lastInputValue.getValue(), 0.0f)).x),
+                            static_cast<float> (transformPointToScreenSpace (PointType(0.0f, outputValue)).y),
+                            static_cast<float>(getHeight()));
+
 
         // Draw grid
         auto numXTicks = 10; // TODO: Make these editable parameters
@@ -243,6 +258,12 @@ namespace aas
         screenSpaceTransform = screenSpaceTransform.scaled (static_cast<float> (getWidth()) / (model.maxX - model.minX),
                                                             static_cast<float> (getHeight()) / (model.minY - model.maxY
                                                             ));
+    }
+
+    template <typename T>
+    void CurveEditor<T>::valueChanged(Value& value)
+    {
+        repaint();
     }
 
     template <typename T>
