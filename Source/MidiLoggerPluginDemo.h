@@ -90,7 +90,15 @@ public:
         AudioProcessor (getBusesLayout()),
         curveEditorModel (0.0f, 127.0f, 0.0f, 127.0f)
     {
-        state.addChild ({"uiState", {{"width", 500}, {"height", 300}}, {}}, -1, nullptr);
+        state.addChild ({
+                            "uiState", {
+                                {"width", 500},
+                                {"height", 300},
+                                {"midiInput", 1},
+                                {"midiOutput", 1}
+                            },
+                            {}
+                        }, -1, nullptr);
         startTimerHz (60);
     }
 
@@ -165,16 +173,18 @@ private:
             lastUIWidth.addListener (this);
             lastUIHeight.addListener (this);
 
+            // Setup input/output dropdowns
             midiInputDropdown.onChange = [&]
             {
+                lastMidiInput = midiInputDropdown.getSelectedId();
                 owner.midiInputModel.selectedItemId = midiInputDropdown.getSelectedId();
             };
             midiOutputDropdown.onChange = [&]
             {
+                lastMidiOutput = midiOutputDropdown.getSelectedId();
                 owner.midiOutputModel.selectedItemId = midiOutputDropdown.getSelectedId();
             };
 
-            // Setup input/output dropdowns
             for (auto i = 0; i < 128; i++)
             {
                 const auto* const controllerName = MidiMessage::getControllerName (i);
@@ -184,6 +194,11 @@ private:
                     midiOutputDropdown.addItem (controllerName, i + 1);
                 }
             }
+
+            lastMidiInput.referTo(owner.state.getChildWithName("uiState").getPropertyAsValue("midiInput", nullptr));
+            lastMidiOutput.referTo(owner.state.getChildWithName("uiState").getPropertyAsValue("midiOutput", nullptr));
+            midiInputDropdown.setSelectedId(static_cast<int> (lastMidiInput.getValue()));
+            midiOutputDropdown.setSelectedId(static_cast<int> (lastMidiOutput.getValue()));
         }
 
         void paint(Graphics& g) override
@@ -206,9 +221,10 @@ private:
         }
 
     private:
-        void valueChanged(Value&) override
+        void valueChanged(Value& value) override
         {
-            setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
+            if (value == lastUIWidth || value == lastUIHeight)
+                setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
         }
 
         MidiLoggerPluginDemoProcessor& owner;
@@ -217,6 +233,7 @@ private:
         juce::ComboBox midiInputDropdown;
         juce::ComboBox midiOutputDropdown;
 
+        Value lastMidiInput, lastMidiOutput;
         Value lastUIWidth, lastUIHeight;
     };
 
