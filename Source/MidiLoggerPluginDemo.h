@@ -185,6 +185,11 @@ private:
                 owner.midiOutputModel.selectedItemId = midiOutputDropdown.getSelectedId();
             };
 
+            // Fill input/output midi dropdowns
+            midiInputDropdown.addItem ("Velocity", -1);
+            midiInputDropdown.addItem ("Pitch", -2);
+            midiOutputDropdown.addItem ("Velocity", -1);
+            midiOutputDropdown.addItem ("Pitch", -2);
             for (auto i = 0; i < 128; i++)
             {
                 const auto* const controllerName = MidiMessage::getControllerName (i);
@@ -195,10 +200,10 @@ private:
                 }
             }
 
-            lastMidiInput.referTo(owner.state.getChildWithName("uiState").getPropertyAsValue("midiInput", nullptr));
-            lastMidiOutput.referTo(owner.state.getChildWithName("uiState").getPropertyAsValue("midiOutput", nullptr));
-            midiInputDropdown.setSelectedId(static_cast<int> (lastMidiInput.getValue()));
-            midiOutputDropdown.setSelectedId(static_cast<int> (lastMidiOutput.getValue()));
+            lastMidiInput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiInput", nullptr));
+            lastMidiOutput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiOutput", nullptr));
+            midiInputDropdown.setSelectedId (static_cast<int> (lastMidiInput.getValue()));
+            midiOutputDropdown.setSelectedId (static_cast<int> (lastMidiOutput.getValue()));
         }
 
         void paint(Graphics& g) override
@@ -257,20 +262,47 @@ private:
             MidiMessage msg = it.getMessage();
             const auto timestamp = msg.getTimeStamp();
             const auto sampleNumber = static_cast<int> (timestamp * getSampleRate());
+            newMidiBuffer.addEvent(msg, sampleNumber); // Add back original message
+            int inputValue = 0;
+            int outputValue = 0;
             if (msg.isController() && msg.getControllerNumber() == CC_IN)
             {
-                // Map original CC value to new CC value using data from CurveEditor
-                const auto value = msg.getControllerValue();
-                curveEditorModel.lastInputValue.setValue (value);
-
-                const auto newValue = static_cast<int> (curveEditorModel.compute (static_cast<float> (value)));
-                const auto newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, newValue);
-                newMidiBuffer.addEvent (newMsg, sampleNumber);
+                inputValue = msg.getControllerValue();
+            }
+            else if (CC_IN == -2 && msg.isNoteOnOrOff())
+            {
+                inputValue = msg.getVelocity();
+            }
+            else if (CC_IN == -3 && msg.isPitchWheel())
+            {
+                inputValue = static_cast<float>(msg.getPitchWheelValue()) / static_cast<float>(1 << 14) * static_cast<float>(curveEditorModel.maxY - curveEditorModel.minY);
             }
             else
             {
                 newMidiBuffer.addEvent (msg, sampleNumber);
+                continue;
             }
+
+            // Map original MIDI value to a new MIDI value using the function defined by the CurveEditor
+            curveEditorModel.lastInputValue.setValue (inputValue);
+            outputValue = static_cast<int> (curveEditorModel.compute (static_cast<float> (inputValue)));
+
+            MidiMessage newMsg;
+            if (CC_OUT >= 0)
+            {
+                newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, outputValue);
+            }
+            else if (CC_OUT == -1)
+            {
+                msg.setVelocity ((static_cast<float> (outputValue) - curveEditorModel.minY) / (curveEditorModel.maxY - curveEditorModel.minY));
+                continue;
+            }
+            else if (CC_OUT == -2)
+            {
+                newMsg = juce::MidiMessage::pitchWheel (msg.getChannel(), outputValue);
+            }
+
+            newMidiBuffer.addEvent (newMsg, sampleNumber);
         }
         midi.swapWith (newMidiBuffer);
         queue.push (midi);
