@@ -23,7 +23,7 @@
 
  BEGIN_JUCE_PIP_METADATA
 
- name:                  MIDILogger
+ name:                  MIDI-Transformer
  version:               1.0.0
  vendor:                JUCE
  website:               http://juce.com
@@ -38,7 +38,7 @@
  moduleFlags:           JUCE_STRICT_REFCOUNTEDPOINTER=1
 
  type:                  AudioProcessor
- mainClass:             MidiLoggerPluginDemoProcessor
+ mainClass:             MidiTransformerPluginProcessor
 
  useLocalCopy:          1
 
@@ -81,11 +81,11 @@ struct DropdownListModel
 };
 
 //==============================================================================
-class MidiLoggerPluginDemoProcessor : public AudioProcessor,
-                                      private Timer
+class MidiTransformerPluginProcessor : public AudioProcessor,
+                                       private Timer
 {
 public:
-    MidiLoggerPluginDemoProcessor()
+    MidiTransformerPluginProcessor()
         :
         AudioProcessor (getBusesLayout()),
         curveEditorModel (0.0f, 127.0f, 0.0f, 127.0f)
@@ -102,7 +102,7 @@ public:
         startTimerHz (60);
     }
 
-    ~MidiLoggerPluginDemoProcessor() override { stopTimer(); }
+    ~MidiTransformerPluginProcessor() override { stopTimer(); }
 
     void processBlock(AudioBuffer<float>& audio, MidiBuffer& midi) override { process (audio, midi); }
     void processBlock(AudioBuffer<double>& audio, MidiBuffer& midi) override { process (audio, midi); }
@@ -155,7 +155,10 @@ private:
                    private Value::Listener
     {
     public:
-        explicit Editor(MidiLoggerPluginDemoProcessor& ownerIn)
+        static const int VELOCITY_DROPDOWN_ID = -1;
+        static const int PITCH_DROPDOWN_ID = -2;
+
+        explicit Editor(MidiTransformerPluginProcessor& ownerIn)
             :
             AudioProcessorEditor (ownerIn),
             owner (ownerIn),
@@ -186,10 +189,9 @@ private:
             };
 
             // Fill input/output midi dropdowns
-            midiInputDropdown.addItem ("Velocity", -1);
-            midiInputDropdown.addItem ("Pitch", -2);
-            midiOutputDropdown.addItem ("Velocity", -1);
-            midiOutputDropdown.addItem ("Pitch", -2);
+            midiInputDropdown.addItem ("Velocity", VELOCITY_DROPDOWN_ID);
+            midiInputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
+            midiOutputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
             for (auto i = 0; i < 128; i++)
             {
                 const auto* const controllerName = MidiMessage::getControllerName (i);
@@ -232,7 +234,7 @@ private:
                 setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
         }
 
-        MidiLoggerPluginDemoProcessor& owner;
+        MidiTransformerPluginProcessor& owner;
 
         aas::CurveEditor<float> curveEditor;
         juce::ComboBox midiInputDropdown;
@@ -251,6 +253,7 @@ private:
     template <typename Element>
     void process(AudioBuffer<Element>& audio, MidiBuffer& midi)
     {
+        using NumericType = decltype(curveEditorModel)::NumericType;
         const int CC_IN = midiInputModel.selectedItemId - 1; // TODO: May have threading issues
         const int CC_OUT = midiOutputModel.selectedItemId - 1;
 
@@ -262,20 +265,21 @@ private:
             MidiMessage msg = it.getMessage();
             const auto timestamp = msg.getTimeStamp();
             const auto sampleNumber = static_cast<int> (timestamp * getSampleRate());
-            newMidiBuffer.addEvent(msg, sampleNumber); // Add back original message
-            int inputValue = 0;
-            int outputValue = 0;
+            NumericType inputValue = 0;
+            NumericType outputValue = 0;
             if (msg.isController() && msg.getControllerNumber() == CC_IN)
             {
-                inputValue = msg.getControllerValue();
+                inputValue = static_cast<NumericType> (msg.getControllerValue());
             }
-            else if (CC_IN == -2 && msg.isNoteOnOrOff())
+            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1)
             {
-                inputValue = msg.getVelocity();
+                inputValue = static_cast<NumericType> (msg.getVelocity());
+                newMidiBuffer.addEvent (msg, sampleNumber);
             }
-            else if (CC_IN == -3 && msg.isPitchWheel())
+            else if (CC_IN == Editor::PITCH_DROPDOWN_ID - 1 && msg.isPitchWheel())
             {
-                inputValue = static_cast<float>(msg.getPitchWheelValue()) / static_cast<float>(1 << 14) * static_cast<float>(curveEditorModel.maxY - curveEditorModel.minY);
+                inputValue = (static_cast<NumericType> (msg.getPitchWheelValue()) / static_cast<NumericType> (1 << 14)) *
+                        (curveEditorModel.maxY - curveEditorModel.minY);
             }
             else
             {
@@ -285,21 +289,17 @@ private:
 
             // Map original MIDI value to a new MIDI value using the function defined by the CurveEditor
             curveEditorModel.lastInputValue.setValue (inputValue);
-            outputValue = static_cast<int> (curveEditorModel.compute (static_cast<float> (inputValue)));
+            outputValue = curveEditorModel.compute (static_cast<float> (inputValue));
 
             MidiMessage newMsg;
             if (CC_OUT >= 0)
             {
-                newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, outputValue);
+                newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, static_cast<int> (outputValue));
             }
-            else if (CC_OUT == -1)
+            else if (CC_OUT == Editor::PITCH_DROPDOWN_ID - 1)
             {
-                msg.setVelocity ((static_cast<float> (outputValue) - curveEditorModel.minY) / (curveEditorModel.maxY - curveEditorModel.minY));
-                continue;
-            }
-            else if (CC_OUT == -2)
-            {
-                newMsg = juce::MidiMessage::pitchWheel (msg.getChannel(), outputValue);
+                outputValue = (outputValue * (1 << 14)) / (curveEditorModel.maxY - curveEditorModel.minY);
+                newMsg = juce::MidiMessage::pitchWheel (msg.getChannel(), static_cast<int> (outputValue));
             }
 
             newMidiBuffer.addEvent (newMsg, sampleNumber);
@@ -323,5 +323,5 @@ private:
     DropdownListModel midiInputModel;
     aas::CurveEditorModel<float> curveEditorModel;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiLoggerPluginDemoProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiTransformerPluginProcessor)
 };

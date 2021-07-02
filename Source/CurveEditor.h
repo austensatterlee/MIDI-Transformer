@@ -6,6 +6,7 @@ namespace aas
     template <typename T>
     struct CurveEditorModel
     {
+        using NumericType = T;
         using PointType = juce::Point<T>;
 
         explicit CurveEditorModel(T minX, T maxX, T minY, T maxY) :
@@ -13,10 +14,10 @@ namespace aas
             maxX (maxX),
             minY (minY),
             maxY (maxY),
-            lastInputValue (T (0))
+            lastInputValue (static_cast<T> (0))
         {
             points.emplace_back (PointType{minX, minY});
-            points.emplace_back (PointType{minX + (maxX - minX) * (T)0.5, minY + (maxY - minY) * (T)0.5});
+            points.emplace_back (PointType{minX + (maxX - minX) * static_cast<T> (0.5), minY + (maxY - minY) * static_cast<T> (0.5)});
             points.emplace_back (PointType{maxX, maxY});
         }
 
@@ -186,10 +187,26 @@ namespace aas
                 closestPointDist = dist;
             }
         }
+
         if (closestPointDist < distanceThreshold)
-            selectedPoint = closestPoint;
+        {
+            if (event.mods.isLeftButtonDown())
+            {
+                selectedPoint = closestPoint;
+            }
+            else if (event.mods.isRightButtonDown())
+            {
+                if (closestPoint != &model.points.front() && closestPoint != &model.points.back())
+                {
+                    selectedPoint = nullptr;
+                    model.points.erase (model.points.begin() + (closestPoint - &model.points[0]));
+                }
+            }
+        }
         else
+        {
             selectedPoint = nullptr;
+        }
 
         repaint();
     }
@@ -228,6 +245,12 @@ namespace aas
                 std::swap (*selectedPoint, *(selectedPoint + 1));
                 selectedPoint = selectedPoint + 1;
             }
+
+            std::sort (model.points.begin(), model.points.end(),
+                       [](const PointType& p1, const PointType& p2) -> bool
+                       {
+                           return p1.x < p2.x;
+                       });
             repaint();
         }
     }

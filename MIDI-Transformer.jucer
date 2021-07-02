@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT name="MIDILogger" companyName="JUCE" version="1.0.0" userNotes="Logs incoming MIDI messages."
+<JUCERPROJECT name="MIDI-Transformer" companyName="JUCE" version="1.0.0" userNotes="Logs incoming MIDI messages."
               companyWebsite="http://juce.com" displaySplashScreen="1" defines="PIP_JUCE_EXAMPLES_DIRECTORY=QzpcSlVDRVxleGFtcGxlcw=="
               projectType="audioplug" pluginAUIsSandboxSafe="1" pluginManufacturer="JUCE"
               pluginFormats="buildVST3,buildAU,buildStandalone" pluginCharacteristicsValue="pluginWantsMidiIn,pluginProducesMidiOut"
               useAppConfig="0" addUsingNamespaceToJuceHeader="1" id="e2YpQm"
               jucerFormatVersion="1">
-  <MAINGROUP id="TIc51Z" name="MIDILogger">
+  <MAINGROUP id="TIc51Z" name="MIDI-Transformer">
     <GROUP id="{CFD1D850-CD76-12F8-129A-45703AEF756F}" name="Source">
-      <FILE id="f1Drjd" name="CurveEditor.cpp" compile="1" resource="0" file="Source/CurveEditor.cpp"/>
       <FILE id="nNHwSC" name="CurveEditor.h" compile="0" resource="0" file="Source/CurveEditor.h"/>
       <FILE id="R8DpRi" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
-      <FILE id="MAAbPB" name="MidiLoggerPluginDemo.h" compile="0" resource="0"
-            file="Source/MidiLoggerPluginDemo.h"/>
+      <FILE id="MAAbPB" name="MidiTransformerPlugin.h" compile="0" resource="0"
+            file="Source/MidiTransformerPlugin.h"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>

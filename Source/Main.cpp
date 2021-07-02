@@ -7,10 +7,10 @@
 */
 
 #include <JuceHeader.h>
-#include "MidiLoggerPluginDemo.h"
+#include "MidiTransformerPlugin.h"
 
 //==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new MidiLoggerPluginDemoProcessor();
+    return new MidiTransformerPluginProcessor();
 }
