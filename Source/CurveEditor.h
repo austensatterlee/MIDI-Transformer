@@ -75,6 +75,7 @@ namespace aas
         void valueChanged(Value& value) override;
 
         void addPoint(const PointType& p);
+        PointType* getClosestPoint(const Point<T>& p);
 
     private:
         PointType transformPointToScreenSpace(const PointType& p) const;
@@ -174,21 +175,14 @@ namespace aas
     {
         jassert (!model.points.empty());
 
-        const auto mousePt = event.getPosition().toFloat();
-        PointType* closestPoint = nullptr;
-        float closestPointDist = 0;
-        const float distanceThreshold = pointSize * 2.0f;
-        for (auto& p : model.points)
-        {
-            const auto dist = transformPointToScreenSpace (p).getDistanceFrom (mousePt);
-            if (dist < closestPointDist || closestPoint == nullptr)
-            {
-                closestPoint = &p;
-                closestPointDist = dist;
-            }
-        }
+        PointType* closestPoint = getClosestPoint (event.mouseDownPosition);
+        if (!closestPoint)
+            return;
 
-        if (closestPointDist < distanceThreshold)
+        auto closestPointDist = transformPointToScreenSpace (*closestPoint).getDistanceFrom (event.mouseDownPosition);
+
+        const float DISTANCE_THRESHOLD = pointSize * 2.0f;
+        if (closestPointDist < DISTANCE_THRESHOLD)
         {
             if (event.mods.isLeftButtonDown())
             {
@@ -221,7 +215,7 @@ namespace aas
 
             // Adjust selected point within the X and Y boundaries
             *selectedPoint = *selectedPoint + 0.9f * (modelSpaceMousePt - *selectedPoint);
-            selectedPoint->setX (jlimit (model.minX, model.maxX, selectedPoint->getX()));
+            selectedPoint->setX (jlimit (model.minX + 1, model.maxX - 1, selectedPoint->getX()));
             selectedPoint->setY (jlimit (model.minY, model.maxY, selectedPoint->getY()));
 
             // Lock the X position of the first and last points
@@ -235,22 +229,27 @@ namespace aas
             }
 
             // Allow points to be seamlessly dragged passed each other
-            if (selectedPoint > &model.points.front() && selectedPoint->x < (selectedPoint - 1)->x)
+            if (selectedPoint > &model.points.front() + 1 && selectedPoint->x < (selectedPoint - 1)->x)
             {
-                std::swap (*selectedPoint, *(selectedPoint - 1));
+                // Swap the currently selected point with the previous point
+                const auto selectedPointIndex = selectedPoint - &model.points.front();
+                const auto tmp = model.points[selectedPointIndex];
+                model.points[selectedPointIndex] = model.points[selectedPointIndex - 1];
+                model.points[selectedPointIndex - 1] = tmp;
+
                 selectedPoint = selectedPoint - 1;
             }
-            else if (selectedPoint < &model.points.back() && selectedPoint->x > (selectedPoint + 1)->x)
+            if (selectedPoint < &model.points.back() - 1 && selectedPoint->x > (selectedPoint + 1)->x)
             {
-                std::swap (*selectedPoint, *(selectedPoint + 1));
+                // Swap the currently selected point with the next point
+                const auto selectedPointIndex = selectedPoint - &model.points.front();
+                const auto tmp = model.points[selectedPointIndex];
+                model.points[selectedPointIndex] = model.points[selectedPointIndex + 1];
+                model.points[selectedPointIndex + 1] = tmp;
+
                 selectedPoint = selectedPoint + 1;
             }
 
-            std::sort (model.points.begin(), model.points.end(),
-                       [](const PointType& p1, const PointType& p2) -> bool
-                       {
-                           return p1.x < p2.x;
-                       });
             repaint();
         }
     }
@@ -304,6 +303,26 @@ namespace aas
                 return;
             }
         }
+    }
+
+    template <typename T>
+    typename CurveEditor<T>::PointType* CurveEditor<T>::getClosestPoint(const Point<T>& p)
+    {
+        jassert (!model.points.empty());
+
+        PointType* closestPoint = nullptr;
+        float closestPointDist = 0;
+        for (auto& otherPt : model.points)
+        {
+            const auto dist = transformPointToScreenSpace (otherPt).getDistanceFrom (p);
+            if (dist < closestPointDist || closestPoint == nullptr)
+            {
+                closestPoint = &otherPt;
+                closestPointDist = dist;
+            }
+        }
+
+        return closestPoint;
     }
 
     template <typename T>

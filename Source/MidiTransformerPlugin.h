@@ -194,12 +194,18 @@ private:
             midiOutputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
             for (auto i = 0; i < 128; i++)
             {
-                const auto* const controllerName = MidiMessage::getControllerName (i);
-                if (controllerName)
+                const auto* const rawControllerName = MidiMessage::getControllerName (i);
+                std::string controllerName;
+                if (rawControllerName)
                 {
-                    midiInputDropdown.addItem (controllerName, i + 1);
-                    midiOutputDropdown.addItem (controllerName, i + 1);
+                    controllerName = std::string (rawControllerName) + "(CC " + std::to_string (i) + ")";
                 }
+                else
+                {
+                    controllerName = "CC " + std::to_string (i);
+                }
+                midiInputDropdown.addItem (controllerName, i + 1);
+                midiOutputDropdown.addItem (controllerName, i + 1);
             }
 
             lastMidiInput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiInput", nullptr));
@@ -257,8 +263,6 @@ private:
         const int CC_IN = midiInputModel.selectedItemId - 1; // TODO: May have threading issues
         const int CC_OUT = midiOutputModel.selectedItemId - 1;
 
-        // audio.clear(); // TODO: Remove?
-
         MidiBuffer newMidiBuffer;
         for (auto it : midi)
         {
@@ -271,7 +275,7 @@ private:
             {
                 inputValue = static_cast<NumericType> (msg.getControllerValue());
             }
-            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1)
+            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn (false))
             {
                 inputValue = static_cast<NumericType> (msg.getVelocity());
                 newMidiBuffer.addEvent (msg, sampleNumber);
