@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT name="MIDI-Transformer" companyName="JUCE" version="1.0.0" userNotes="Logs incoming MIDI messages."
+<JUCERPROJECT name="MIDI-Transformer" companyName="JUCE" version="1.0.0" userNotes="Transforms incoming midi messages."
               companyWebsite="http://juce.com" displaySplashScreen="1" defines="PIP_JUCE_EXAMPLES_DIRECTORY=QzpcSlVDRVxleGFtcGxlcw=="
               projectType="audioplug" pluginAUIsSandboxSafe="1" pluginManufacturer="JUCE"
               pluginFormats="buildVST3,buildAU,buildStandalone" pluginCharacteristicsValue="pluginWantsMidiIn,pluginProducesMidiOut"
@@ -32,8 +32,8 @@
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX">
       <CONFIGURATIONS>
-        <CONFIGURATION name="Debug" isDebug="1" optimisation="1" targetName="MIDILogger"/>
-        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="MIDILogger"/>
+        <CONFIGURATION name="Debug" isDebug="1" optimisation="1" targetName="MIDI-Transformer"/>
+        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="MIDI-Transformer"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path=""/>
@@ -52,8 +52,8 @@
     </XCODE_MAC>
     <VS2019 targetFolder="Builds/VisualStudio2019">
       <CONFIGURATIONS>
-        <CONFIGURATION name="Debug" isDebug="1" optimisation="1" targetName="MIDILogger"/>
-        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="MIDILogger"/>
+        <CONFIGURATION name="Debug" isDebug="1" optimisation="1" targetName="MIDI-Transformer"/>
+        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="MIDI-Transformer"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path=""/>
@@ -72,8 +72,8 @@
     </VS2019>
     <LINUX_MAKE targetFolder="Builds/LinuxMakefile">
       <CONFIGURATIONS>
-        <CONFIGURATION name="Debug" isDebug="1" optimisation="1" targetName="MIDILogger"/>
-        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="MIDILogger"/>
+        <CONFIGURATION name="Debug" isDebug="1" optimisation="1" targetName="MIDI-Transformer"/>
+        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="MIDI-Transformer"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path=""/>

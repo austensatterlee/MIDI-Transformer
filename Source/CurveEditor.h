@@ -4,21 +4,63 @@
 namespace aas
 {
     template <typename T>
-    struct CurveEditorModel
-    {
+    struct CurveEditorModel {
         using NumericType = T;
         using PointType = juce::Point<T>;
+
+        enum class CurveType {
+            Linear = 0,
+            Quadratic
+        };
+
+        static constexpr int CurveTypeCount = 2;
+
+        struct Handle;
+
+        struct Node {
+            Handle anchor;
+            Handle control1;
+            CurveType curveType = CurveType::Linear;
+
+            explicit Node(const PointType& anchor) :
+                anchor (Handle{anchor, this}),
+                control1 (Handle{anchor, this}) { }
+
+            void setAnchorPt(const PointType& pt) {
+                auto anchorControlDist = anchor.pt - control1.pt;
+                anchor.pt = pt;
+                control1.pt = pt - anchorControlDist;
+            }
+
+            void setControlPt(const PointType& pt) {
+                control1.pt = pt;
+            }
+        };
+
+        struct Handle {
+            PointType pt;
+            Node* parent;
+
+            Handle(const PointType& pt, Node* parent) :
+                pt (pt),
+                parent (parent) { }
+
+            void setX(T newX) { pt.setX (newX); }
+            void setY(T newY) { pt.setY (newY); }
+        };
 
         explicit CurveEditorModel(T minX, T maxX, T minY, T maxY) :
             minX (minX),
             maxX (maxX),
             minY (minY),
             maxY (maxY),
-            lastInputValue (static_cast<T> (0))
-        {
-            points.emplace_back (PointType{minX, minY});
-            points.emplace_back (PointType{minX + (maxX - minX) * static_cast<T> (0.5), minY + (maxY - minY) * static_cast<T> (0.5)});
-            points.emplace_back (PointType{maxX, maxY});
+            lastInputValue (static_cast<T> (0)) {
+            nodes.emplace_back (std::make_shared<Node> (PointType{minX, minY}));
+            nodes.emplace_back (std::make_shared<Node> (PointType{
+                                                            minX + (maxX - minX) * static_cast<T> (0.5),
+                                                            minY + (maxY - minY) * static_cast<T> (0.5)
+                                                        }));
+            nodes.emplace_back (std::make_shared<Node> (PointType{maxX, maxY}));
         }
 
         /**
@@ -28,25 +70,51 @@ namespace aas
 
         T minX, maxX;
         T minY, maxY;
-        std::vector<PointType> points;
+        std::vector<std::shared_ptr<Node>> nodes;
         juce::Value lastInputValue;
     };
 
     template <typename T>
-    T CurveEditorModel<T>::compute(T input)
-    {
-        jassert (points.size() > 1);
-        for (size_t i = 1; i < points.size(); i++)
-        {
-            const auto& lastPoint = points[i - 1];
-            const auto& point = points[i];
+    T CurveEditorModel<T>::compute(T input) {
+        jassert (nodes.size() > 1);
+        for (size_t i = 1; i < nodes.size(); i++) {
+            const auto& lastNode = *nodes[i - 1];
+            const auto& node = *nodes[i];
 
-            jassert (lastPoint.x <= point.x);
+            const auto& lastAnchorPoint = lastNode.anchor.pt;
+            const auto& anchorPoint = node.anchor.pt;
 
-            if (input <= point.x)
-            {
-                const auto slope = (point.y - lastPoint.y) / (point.x - lastPoint.x);
-                return slope * (input - lastPoint.x) + lastPoint.y;
+            jassert (lastAnchorPoint.x <= anchorPoint.x);
+
+            if (input <= anchorPoint.x) {
+                switch (lastNode.curveType) {
+                case CurveType::Quadratic:
+                    // B(t) = (1-t)^2 * P0 + 2(1-t) * t * P1 + t^2 * P2 , 0 < t < 1
+                    //       P0-P1 [+/-] sqrt(P1^2 - P0 * P2)
+                    // t =  -----------------------
+                    //         P0(P0 - 2P1 + P2)
+                    {
+                        const auto& ctrlPoint = lastNode.control1.pt;
+                        float finalT = 0.0f;
+                        float minDist = -1.0f;
+                        for (int j = 0; j <= 100; j++) {
+                            const float t = static_cast<float> (j) / 100.0f;
+                            const float x = std::pow ((1 - t), 2.0) * lastAnchorPoint.x + 2 * (1 - t) * t * ctrlPoint.x + std::pow (t, 2.0) * anchorPoint.x;
+                            const float distance = std::abs (x - input);
+                            if (distance < minDist || minDist < 0.0f) {
+                                finalT = t;
+                                minDist = distance;
+                            }
+                        }
+                        float y = std::pow ((1 - finalT), 2.0) * lastAnchorPoint.y + 2 * (1 - finalT) * finalT * ctrlPoint.y +
+                                std::pow (finalT, 2.0) * anchorPoint.y;
+                        return y;
+                    }
+                default:
+                case CurveType::Linear:
+                    const auto slope = (anchorPoint.y - lastAnchorPoint.y) / (anchorPoint.x - lastAnchorPoint.x);
+                    return slope * (input - lastAnchorPoint.x) + lastAnchorPoint.y;
+                }
             }
         }
         jassertfalse; // TODO
@@ -54,13 +122,14 @@ namespace aas
     }
 
     template <typename T>
-    class CurveEditor : public juce::Component, juce::Value::Listener
-    {
+    class CurveEditor : public juce::Component, juce::Value::Listener {
         using PointType = typename CurveEditorModel<T>::PointType;
+        using Handle = typename CurveEditorModel<T>::Handle;
+        using Node = typename CurveEditorModel<T>::Node;
+        using CurveType = typename CurveEditorModel<T>::CurveType;
     public:
         explicit CurveEditor(CurveEditorModel<T>& model) :
-            model (model)
-        {
+            model (model) {
             lastInputValue.referTo (model.lastInputValue);
             lastInputValue.addListener (this);
         }
@@ -75,48 +144,79 @@ namespace aas
         void valueChanged(Value& value) override;
 
         void addPoint(const PointType& p);
-        PointType* getClosestPoint(const Point<T>& p);
+        /**
+         * \brief Get a reference to the handle closest to the given point (in screen space)
+         */
+        Handle* getClosestHandle(const PointType& screenPt);
 
     private:
         PointType transformPointToScreenSpace(const PointType& p) const;
         PointType transformPointFromScreenSpace(const PointType& p) const;
     private:
-        const float pointSize = 10.0f;
+        const float POINT_SIZE = 10.0f;
+        const float DISTANCE_THRESHOLD = POINT_SIZE * 2.0f;
         juce::AffineTransform screenSpaceTransform;
-        PointType* selectedPoint = nullptr;
+        Handle* selectedHandle = nullptr;
         CurveEditorModel<T>& model;
         Value lastInputValue;
     };
 
     template <typename T>
-    void CurveEditor<T>::paint(Graphics& g)
-    {
+    void CurveEditor<T>::paint(Graphics& g) {
         g.setColour (Colours::black);
         g.fillRect (0, 0, getWidth(), getHeight());
 
+        auto drawHandles = [this, &g](const Node& node)
+        {
+            auto transformedAnchorPoint = transformPointToScreenSpace (node.anchor.pt);
+            if (selectedHandle == &node.anchor) {
+                g.setColour (Colours::red);
+                g.fillEllipse (transformedAnchorPoint.x - POINT_SIZE * 0.5f,
+                               transformedAnchorPoint.y - POINT_SIZE * 0.5f,
+                               POINT_SIZE, POINT_SIZE);
+            }
+            else {
+                g.setColour (Colours::goldenrod);
+                g.drawEllipse (transformedAnchorPoint.x - POINT_SIZE * 0.5f,
+                               transformedAnchorPoint.y - POINT_SIZE * 0.5f,
+                               POINT_SIZE, POINT_SIZE, 3.0f);
+            }
+
+            if (node.curveType == CurveType::Quadratic) {
+                auto transformedControlPoint = transformPointToScreenSpace (node.control1.pt);
+                if (selectedHandle == &node.control1) {
+                    g.setColour (Colours::red);
+                    g.fillEllipse (transformedControlPoint.x - POINT_SIZE * 0.5f,
+                                   transformedControlPoint.y - POINT_SIZE * 0.5f,
+                                   POINT_SIZE, POINT_SIZE);
+                }
+                else {
+                    g.setColour (Colours::goldenrod);
+                    g.drawEllipse (transformedControlPoint.x - POINT_SIZE * 0.5f,
+                                   transformedControlPoint.y - POINT_SIZE * 0.5f,
+                                   POINT_SIZE, POINT_SIZE, 3.0f);
+                }
+                g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint.x, transformedControlPoint.y);
+            }
+        };
+
         // Draw the actual curve
         Path curve;
-        for (size_t i = 0; i < model.points.size(); i++)
-        {
-            const auto transformedPoint = transformPointToScreenSpace (model.points[i]);
+        for (size_t i = 0; i < model.nodes.size(); i++) {
+            const auto transformedAnchorPoint = transformPointToScreenSpace (model.nodes[i]->anchor.pt);
             if (i == 0)
-                curve.startNewSubPath (transformedPoint);
-            else
-                curve.lineTo (transformedPoint);
-            if (selectedPoint == &model.points[i])
-            {
-                g.setColour (Colours::red);
-                g.fillEllipse (transformedPoint.x - pointSize * 0.5f,
-                               transformedPoint.y - pointSize * 0.5f,
-                               pointSize, pointSize);
+                curve.startNewSubPath (transformedAnchorPoint);
+            else {
+                if (model.nodes[i - 1]->curveType == CurveType::Linear) {
+                    curve.lineTo (transformedAnchorPoint);
+                }
+                else if (model.nodes[i - 1]->curveType == CurveType::Quadratic) {
+                    const auto transformedControlPoint = transformPointToScreenSpace (model.nodes[i - 1]->control1.pt);
+                    curve.quadraticTo (transformedControlPoint.x, transformedControlPoint.y, transformedAnchorPoint.x,
+                                       transformedAnchorPoint.y);
+                }
             }
-            else
-            {
-                g.setColour (Colours::goldenrod);
-                g.drawEllipse (transformedPoint.x - pointSize * 0.5f,
-                               transformedPoint.y - pointSize * 0.5f,
-                               pointSize, pointSize, 3.0f);
-            }
+            drawHandles (*model.nodes[i]);
         }
 
         g.setColour (Colours::whitesmoke);
@@ -125,8 +225,7 @@ namespace aas
         // Draw reference line from the mouse pointer to the curve
         const PointType screenSpaceMousePt = getMouseXYRelative().toFloat();
         g.setColour (Colours::red);
-        if (contains (getMouseXYRelative()))
-        {
+        if (contains (getMouseXYRelative())) {
             const auto modelSpaceMousePt = transformPointFromScreenSpace (screenSpaceMousePt);
             const auto modelSpaceCurvePt = PointType (modelSpaceMousePt.x, model.compute (modelSpaceMousePt.x));
             const auto screenSpaceCurvePt = transformPointToScreenSpace (modelSpaceCurvePt);
@@ -156,14 +255,12 @@ namespace aas
         auto numYTicks = 10;
         const Colour slightWhite = Colour::fromRGBA (200, 200, 200, 100);
         g.setColour (slightWhite);
-        for (auto i = 0; i < numXTicks; i++)
-        {
+        for (auto i = 0; i < numXTicks; i++) {
             T currX = (model.maxX - model.minX) / static_cast<T> (numXTicks) * static_cast<T> (i) + model.minX;
             PointType screenX = transformPointToScreenSpace (PointType (currX, 0));
             g.drawVerticalLine (static_cast<int> (screenX.x), 0.0f, static_cast<float> (getHeight()));
         }
-        for (auto i = 0; i < numYTicks; i++)
-        {
+        for (auto i = 0; i < numYTicks; i++) {
             T currY = (model.maxY - model.minY) / static_cast<T> (numYTicks) * static_cast<T> (i) + model.minY;
             PointType screenY = transformPointToScreenSpace (PointType (0, currY));
             g.drawHorizontalLine (static_cast<int> (screenY.y), 0.0f, static_cast<float> (getWidth()));
@@ -171,83 +268,71 @@ namespace aas
     }
 
     template <typename T>
-    void CurveEditor<T>::mouseDown(const MouseEvent& event)
-    {
-        jassert (!model.points.empty());
+    void CurveEditor<T>::mouseDown(const MouseEvent& event) {
+        jassert (!model.nodes.empty());
 
-        PointType* closestPoint = getClosestPoint (event.mouseDownPosition);
-        if (!closestPoint)
+        Handle* closestHandle = getClosestHandle (event.mouseDownPosition);
+        if (!closestHandle)
             return;
 
-        auto closestPointDist = transformPointToScreenSpace (*closestPoint).getDistanceFrom (event.mouseDownPosition);
+        const PointType& closestPt = closestHandle->pt;
 
-        const float DISTANCE_THRESHOLD = pointSize * 2.0f;
-        if (closestPointDist < DISTANCE_THRESHOLD)
-        {
-            if (event.mods.isLeftButtonDown())
-            {
-                selectedPoint = closestPoint;
+        auto closestPointDist = transformPointToScreenSpace (closestPt).getDistanceFrom (event.mouseDownPosition);
+
+
+        if (closestPointDist < DISTANCE_THRESHOLD) {
+            if (event.mods.isLeftButtonDown()) {
+                selectedHandle = closestHandle;
             }
-            else if (event.mods.isRightButtonDown())
-            {
-                if (closestPoint != &model.points.front() && closestPoint != &model.points.back())
-                {
-                    selectedPoint = nullptr;
-                    model.points.erase (model.points.begin() + (closestPoint - &model.points[0]));
+            else if (event.mods.isRightButtonDown()) {
+                if (closestHandle->parent != model.nodes.front().get() && closestHandle->parent != model.nodes.back().get()) {
+                    int toErase = -1;
+                    for (int i = 0; i < model.nodes.size(); i++) {
+                        if (model.nodes[i].get() == closestHandle->parent) {
+                            toErase = i;
+                            break;
+                        }
+                    }
+                    if (toErase != -1) {
+                        model.nodes.erase (model.nodes.begin() + toErase);
+                    }
+                    selectedHandle = nullptr;
                 }
             }
         }
-        else
-        {
-            selectedPoint = nullptr;
+        else {
+            selectedHandle = nullptr;
         }
 
         repaint();
     }
 
     template <typename T>
-    void CurveEditor<T>::mouseDrag(const MouseEvent& event)
-    {
-        if (selectedPoint)
-        {
+    void CurveEditor<T>::mouseDrag(const MouseEvent& event) {
+        if (selectedHandle) {
             const PointType mousePt = event.getPosition().toFloat();
             const PointType modelSpaceMousePt = transformPointFromScreenSpace (mousePt);
+            PointType selectedPoint = selectedHandle->pt;
+            CurveType curveType = selectedHandle->parent->curveType;
 
             // Adjust selected point within the X and Y boundaries
-            *selectedPoint = *selectedPoint + 0.9f * (modelSpaceMousePt - *selectedPoint);
-            selectedPoint->setX (jlimit (model.minX + 1, model.maxX - 1, selectedPoint->getX()));
-            selectedPoint->setY (jlimit (model.minY, model.maxY, selectedPoint->getY()));
+            selectedPoint = selectedPoint + 0.9f * (modelSpaceMousePt - selectedPoint);
+            selectedPoint.setX (jlimit (model.minX + 1, model.maxX - 1, selectedPoint.getX()));
+            selectedPoint.setY (jlimit (model.minY, model.maxY, selectedPoint.getY()));
 
             // Lock the X position of the first and last points
-            if (selectedPoint == &model.points.front())
-            {
-                selectedPoint->setX (model.minX);
+            if (selectedHandle->parent == model.nodes.front().get()) {
+                selectedPoint.setX (model.minX);
             }
-            else if (selectedPoint == &model.points.back())
-            {
-                selectedPoint->setX (model.maxX);
+            else if (selectedHandle->parent == model.nodes.back().get()) {
+                selectedPoint.setX (model.maxX);
             }
 
-            // Allow points to be seamlessly dragged passed each other
-            if (selectedPoint > &model.points.front() + 1 && selectedPoint->x < (selectedPoint - 1)->x)
-            {
-                // Swap the currently selected point with the previous point
-                const auto selectedPointIndex = selectedPoint - &model.points.front();
-                const auto tmp = model.points[selectedPointIndex];
-                model.points[selectedPointIndex] = model.points[selectedPointIndex - 1];
-                model.points[selectedPointIndex - 1] = tmp;
-
-                selectedPoint = selectedPoint - 1;
+            if (selectedHandle == &selectedHandle->parent->anchor) {
+                selectedHandle->parent->setAnchorPt (selectedPoint);
             }
-            if (selectedPoint < &model.points.back() - 1 && selectedPoint->x > (selectedPoint + 1)->x)
-            {
-                // Swap the currently selected point with the next point
-                const auto selectedPointIndex = selectedPoint - &model.points.front();
-                const auto tmp = model.points[selectedPointIndex];
-                model.points[selectedPointIndex] = model.points[selectedPointIndex + 1];
-                model.points[selectedPointIndex + 1] = tmp;
-
-                selectedPoint = selectedPoint + 1;
+            else if (selectedHandle == &selectedHandle->parent->control1 && curveType == CurveType::Quadratic) {
+                selectedHandle->parent->setControlPt (selectedPoint);
             }
 
             repaint();
@@ -255,28 +340,48 @@ namespace aas
     }
 
     template <typename T>
-    void CurveEditor<T>::mouseUp(const MouseEvent& event)
-    {
-        selectedPoint = nullptr;
+    void CurveEditor<T>::mouseUp(const MouseEvent& event) {
+        selectedHandle = nullptr;
     }
 
     template <typename T>
-    void CurveEditor<T>::mouseDoubleClick(const MouseEvent& event)
-    {
-        PointType mousePt = event.getPosition().toFloat();
-        const PointType modelSpaceMousePt = transformPointFromScreenSpace (mousePt);
-        addPoint (modelSpaceMousePt);
+    void CurveEditor<T>::mouseDoubleClick(const MouseEvent& event) {
+        const PointType mousePt = event.mouseDownPosition;
+        Handle* closestHandle = getClosestHandle (mousePt);
+        if (!closestHandle)
+            return;
+
+        const PointType& closestPt = closestHandle->pt;
+        Node* closestNode = closestHandle->parent;
+
+        auto closestPointDist = transformPointToScreenSpace (closestPt).getDistanceFrom (mousePt);
+
+        if (closestPointDist < DISTANCE_THRESHOLD && closestHandle == &closestNode->anchor) {
+            CurveType newType = static_cast<CurveType> ((static_cast<int> (closestNode->curveType) + 1) % CurveEditorModel<
+                T>::CurveTypeCount);
+            if (newType == CurveType::Linear) {
+                closestNode->curveType = newType;
+                closestNode->setControlPt (closestNode->anchor.pt);
+            }
+            if (newType == CurveType::Quadratic && closestNode != model.nodes.back().get()) {
+                closestNode->curveType = newType;
+                PointType controlPoint = closestNode->anchor.pt + PointType (5, 0);
+                closestHandle->parent->setControlPt (controlPoint);
+            }
+        }
+        else {
+            const PointType modelSpaceMousePt = transformPointFromScreenSpace (mousePt);
+            addPoint (modelSpaceMousePt);
+        }
     }
 
     template <typename T>
-    void CurveEditor<T>::mouseMove(const MouseEvent& event)
-    {
+    void CurveEditor<T>::mouseMove(const MouseEvent& event) {
         repaint();
     }
 
     template <typename T>
-    void CurveEditor<T>::resized()
-    {
+    void CurveEditor<T>::resized() {
         screenSpaceTransform = AffineTransform();
         screenSpaceTransform = screenSpaceTransform.translated (-model.minX, -model.maxY);
         screenSpaceTransform = screenSpaceTransform.scaled (static_cast<float> (getWidth()) / (model.maxX - model.minX),
@@ -285,20 +390,16 @@ namespace aas
     }
 
     template <typename T>
-    void CurveEditor<T>::valueChanged(Value& value)
-    {
+    void CurveEditor<T>::valueChanged(Value& value) {
         repaint();
     }
 
     template <typename T>
-    void CurveEditor<T>::addPoint(const PointType& p)
-    {
-        for (size_t i = 0; i < model.points.size(); i++)
-        {
-            const auto& point = model.points[i];
-            if (p.x <= point.x)
-            {
-                model.points.emplace (model.points.begin() + i, p);
+    void CurveEditor<T>::addPoint(const PointType& p) {
+        for (size_t i = 0; i < model.nodes.size(); i++) {
+            const auto& point = *model.nodes[i];
+            if (p.x <= point.anchor.pt.x) {
+                model.nodes.emplace (model.nodes.begin() + i, std::make_shared<Node> (p));
                 repaint();
                 return;
             }
@@ -306,34 +407,38 @@ namespace aas
     }
 
     template <typename T>
-    typename CurveEditor<T>::PointType* CurveEditor<T>::getClosestPoint(const Point<T>& p)
-    {
-        jassert (!model.points.empty());
+    typename CurveEditor<T>::Handle* CurveEditor<T>::getClosestHandle(const PointType& screenPt) {
+        jassert (!model.nodes.empty());
 
-        PointType* closestPoint = nullptr;
-        float closestPointDist = 0;
-        for (auto& otherPt : model.points)
-        {
-            const auto dist = transformPointToScreenSpace (otherPt).getDistanceFrom (p);
-            if (dist < closestPointDist || closestPoint == nullptr)
-            {
-                closestPoint = &otherPt;
-                closestPointDist = dist;
+        auto modelPt = transformPointFromScreenSpace (screenPt);
+        Handle* closestHandle = nullptr;
+        float closestHandleDist = 0;
+        for (auto& node : model.nodes) {
+            auto dist = modelPt.getDistanceFrom (node->anchor.pt);
+            if (dist < closestHandleDist || closestHandle == nullptr) {
+                closestHandle = &node->anchor;
+                closestHandleDist = dist;
+            }
+
+            if (node->curveType == CurveType::Quadratic) {
+                dist = modelPt.getDistanceFrom (node->control1.pt);
+                if (dist < closestHandleDist || closestHandle == nullptr) {
+                    closestHandle = &node->control1;
+                    closestHandleDist = dist;
+                }
             }
         }
 
-        return closestPoint;
+        return closestHandle;
     }
 
     template <typename T>
-    typename CurveEditor<T>::PointType CurveEditor<T>::transformPointToScreenSpace(const PointType& p) const
-    {
+    typename CurveEditor<T>::PointType CurveEditor<T>::transformPointToScreenSpace(const PointType& p) const {
         return p.transformedBy (screenSpaceTransform);
     }
 
     template <typename T>
-    typename CurveEditor<T>::PointType CurveEditor<T>::transformPointFromScreenSpace(const PointType& p) const
-    {
+    typename CurveEditor<T>::PointType CurveEditor<T>::transformPointFromScreenSpace(const PointType& p) const {
         return p.transformedBy (screenSpaceTransform.inverted());
     }
 }
