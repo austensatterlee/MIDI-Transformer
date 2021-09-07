@@ -10,30 +10,39 @@ namespace aas
 
         enum class CurveType {
             Linear = 0,
-            Quadratic
+            Quadratic,
+            Cubic
         };
 
-        static constexpr int CurveTypeCount = 2;
+        static constexpr int CurveTypeCount = 3;
 
         struct Handle;
 
         struct Node {
             Handle anchor;
             Handle control1;
+            Handle control2;
             CurveType curveType = CurveType::Linear;
 
             explicit Node(const PointType& anchor) :
                 anchor (Handle{anchor, this}),
-                control1 (Handle{anchor, this}) { }
+                control1 (Handle{anchor, this}),
+                control2 (Handle{anchor, this}) { }
 
             void setAnchorPt(const PointType& pt) {
-                auto anchorControlDist = anchor.pt - control1.pt;
+                auto anchorControlDist1 = anchor.pt - control1.pt;
+                auto anchorControlDist2 = anchor.pt - control2.pt;
                 anchor.pt = pt;
-                control1.pt = pt - anchorControlDist;
+                control1.pt = pt - anchorControlDist1;
+                control2.pt = pt - anchorControlDist2;
             }
 
-            void setControlPt(const PointType& pt) {
+            void setControlPt1(const PointType& pt) {
                 control1.pt = pt;
+            }
+
+            void setControlPt2(const PointType& pt) {
+                control2.pt = pt;
             }
         };
 
@@ -87,7 +96,35 @@ namespace aas
             jassert (lastAnchorPoint.x <= anchorPoint.x);
 
             if (input <= anchorPoint.x) {
+                auto computeCubic = [](const PointType& p0, const PointType& p1, const PointType& p2, const PointType& p3, auto t)
+                {
+                    return p0 * std::pow (1 - t, 3.0) + p1 * 3 * std::pow (1 - t, 2.0) * t + p2 * 3 * (1 - t) * std::pow (t, 2.0) + p3 *
+                            std::pow (t, 3.0);
+                };
+
+                auto computeQuadratic = [](const PointType& p0, const PointType& p1, const PointType& p2, auto t)
+                {
+                    return p0 * std::pow (1 - t, 2.0) + p1 * 2 * (1 - t) * t + p2 * std::pow (t, 2.0);
+                };
+
                 switch (lastNode.curveType) {
+                case CurveType::Cubic:
+                    {
+                        const auto& ctrlPoint1 = lastNode.control1.pt;
+                        const auto& ctrlPoint2 = lastNode.control2.pt;
+                        float finalT = 0.0f;
+                        float minDist = -1.0f;
+                        for (int j = 0; j <= 100; j++) {
+                            const float t = static_cast<float> (j) / 100.0f;
+                            const float x = computeCubic (lastAnchorPoint, ctrlPoint1, ctrlPoint2, anchorPoint, t).x;
+                            const float distance = std::abs (x - input);
+                            if (distance < minDist || minDist < 0.0f) {
+                                finalT = t;
+                                minDist = distance;
+                            }
+                        }
+                        return computeCubic (lastAnchorPoint, ctrlPoint1, ctrlPoint2, anchorPoint, finalT).y;
+                    }
                 case CurveType::Quadratic:
                     // B(t) = (1-t)^2 * P0 + 2(1-t) * t * P1 + t^2 * P2 , 0 < t < 1
                     //       P0-P1 [+/-] sqrt(P1^2 - P0 * P2)
@@ -99,16 +136,14 @@ namespace aas
                         float minDist = -1.0f;
                         for (int j = 0; j <= 100; j++) {
                             const float t = static_cast<float> (j) / 100.0f;
-                            const float x = std::pow ((1 - t), 2.0) * lastAnchorPoint.x + 2 * (1 - t) * t * ctrlPoint.x + std::pow (t, 2.0) * anchorPoint.x;
+                            const float x = computeQuadratic (lastAnchorPoint, ctrlPoint, anchorPoint, t).x;
                             const float distance = std::abs (x - input);
                             if (distance < minDist || minDist < 0.0f) {
                                 finalT = t;
                                 minDist = distance;
                             }
                         }
-                        float y = std::pow ((1 - finalT), 2.0) * lastAnchorPoint.y + 2 * (1 - finalT) * finalT * ctrlPoint.y +
-                                std::pow (finalT, 2.0) * anchorPoint.y;
-                        return y;
+                        return computeQuadratic (lastAnchorPoint, ctrlPoint, anchorPoint, finalT).y;
                     }
                 default:
                 case CurveType::Linear:
@@ -166,37 +201,37 @@ namespace aas
         g.setColour (Colours::black);
         g.fillRect (0, 0, getWidth(), getHeight());
 
-        auto drawHandles = [this, &g](const Node& node)
+        auto drawHandle = [this, &g](const Handle& handle)
         {
-            auto transformedAnchorPoint = transformPointToScreenSpace (node.anchor.pt);
-            if (selectedHandle == &node.anchor) {
+            auto transformedHandlePoint = transformPointToScreenSpace (handle.pt);
+            if (selectedHandle == &handle) {
                 g.setColour (Colours::red);
-                g.fillEllipse (transformedAnchorPoint.x - POINT_SIZE * 0.5f,
-                               transformedAnchorPoint.y - POINT_SIZE * 0.5f,
+                g.fillEllipse (transformedHandlePoint.x - POINT_SIZE * 0.5f,
+                               transformedHandlePoint.y - POINT_SIZE * 0.5f,
                                POINT_SIZE, POINT_SIZE);
             }
             else {
                 g.setColour (Colours::goldenrod);
-                g.drawEllipse (transformedAnchorPoint.x - POINT_SIZE * 0.5f,
-                               transformedAnchorPoint.y - POINT_SIZE * 0.5f,
+                g.drawEllipse (transformedHandlePoint.x - POINT_SIZE * 0.5f,
+                               transformedHandlePoint.y - POINT_SIZE * 0.5f,
                                POINT_SIZE, POINT_SIZE, 3.0f);
             }
+            return transformedHandlePoint;
+        };
+
+        auto drawHandles = [this, drawHandle, &g](const Node& node)
+        {
+            auto transformedAnchorPoint = drawHandle (node.anchor);
 
             if (node.curveType == CurveType::Quadratic) {
-                auto transformedControlPoint = transformPointToScreenSpace (node.control1.pt);
-                if (selectedHandle == &node.control1) {
-                    g.setColour (Colours::red);
-                    g.fillEllipse (transformedControlPoint.x - POINT_SIZE * 0.5f,
-                                   transformedControlPoint.y - POINT_SIZE * 0.5f,
-                                   POINT_SIZE, POINT_SIZE);
-                }
-                else {
-                    g.setColour (Colours::goldenrod);
-                    g.drawEllipse (transformedControlPoint.x - POINT_SIZE * 0.5f,
-                                   transformedControlPoint.y - POINT_SIZE * 0.5f,
-                                   POINT_SIZE, POINT_SIZE, 3.0f);
-                }
+                auto transformedControlPoint = drawHandle (node.control1);
                 g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint.x, transformedControlPoint.y);
+            }
+            else if (node.curveType == CurveType::Cubic) {
+                auto transformedControlPoint1 = drawHandle (node.control1);
+                g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint1.x, transformedControlPoint1.y);
+                auto transformedControlPoint2 = drawHandle (node.control2);
+                g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint2.x, transformedControlPoint2.y);
             }
         };
 
@@ -207,13 +242,20 @@ namespace aas
             if (i == 0)
                 curve.startNewSubPath (transformedAnchorPoint);
             else {
-                if (model.nodes[i - 1]->curveType == CurveType::Linear) {
+                CurveType curve_type = model.nodes[i - 1]->curveType;
+                if (curve_type == CurveType::Linear) {
                     curve.lineTo (transformedAnchorPoint);
                 }
-                else if (model.nodes[i - 1]->curveType == CurveType::Quadratic) {
-                    const auto transformedControlPoint = transformPointToScreenSpace (model.nodes[i - 1]->control1.pt);
-                    curve.quadraticTo (transformedControlPoint.x, transformedControlPoint.y, transformedAnchorPoint.x,
+                else if (curve_type == CurveType::Quadratic) {
+                    const auto transformedControlPoint1 = transformPointToScreenSpace (model.nodes[i - 1]->control1.pt);
+                    curve.quadraticTo (transformedControlPoint1.x, transformedControlPoint1.y, transformedAnchorPoint.x,
                                        transformedAnchorPoint.y);
+                }
+                else if (curve_type == CurveType::Cubic) {
+                    const auto transformedControlPoint1 = transformPointToScreenSpace (model.nodes[i - 1]->control1.pt);
+                    const auto transformedControlPoint2 = transformPointToScreenSpace (model.nodes[i - 1]->control2.pt);
+                    curve.cubicTo (transformedControlPoint1.x, transformedControlPoint1.y, transformedControlPoint2.x,
+                                   transformedControlPoint2.y, transformedAnchorPoint.x, transformedAnchorPoint.y);
                 }
             }
             drawHandles (*model.nodes[i]);
@@ -331,8 +373,10 @@ namespace aas
             if (selectedHandle == &selectedHandle->parent->anchor) {
                 selectedHandle->parent->setAnchorPt (selectedPoint);
             }
-            else if (selectedHandle == &selectedHandle->parent->control1 && curveType == CurveType::Quadratic) {
-                selectedHandle->parent->setControlPt (selectedPoint);
+            else if (selectedHandle == &selectedHandle->parent->control1 && (curveType == CurveType::Quadratic || curveType == CurveType::Cubic)) {
+                selectedHandle->parent->setControlPt1 (selectedPoint);
+            } else if (selectedHandle == &selectedHandle->parent->control2 && curveType == CurveType::Cubic) {
+                selectedHandle->parent->setControlPt2(selectedPoint);
             }
 
             repaint();
@@ -359,14 +403,20 @@ namespace aas
         if (closestPointDist < DISTANCE_THRESHOLD && closestHandle == &closestNode->anchor) {
             CurveType newType = static_cast<CurveType> ((static_cast<int> (closestNode->curveType) + 1) % CurveEditorModel<
                 T>::CurveTypeCount);
+            closestNode->curveType = newType;
+
             if (newType == CurveType::Linear) {
-                closestNode->curveType = newType;
-                closestNode->setControlPt (closestNode->anchor.pt);
+                closestNode->setControlPt1 (closestNode->anchor.pt);
             }
-            if (newType == CurveType::Quadratic && closestNode != model.nodes.back().get()) {
-                closestNode->curveType = newType;
-                PointType controlPoint = closestNode->anchor.pt + PointType (5, 0);
-                closestHandle->parent->setControlPt (controlPoint);
+            else if (newType == CurveType::Quadratic && closestNode != model.nodes.back().get()) {
+                PointType controlPoint1 = closestNode->anchor.pt + PointType (5, 0);
+                closestHandle->parent->setControlPt1 (controlPoint1);
+            }
+            else if (newType == CurveType::Cubic && closestNode != model.nodes.back().get()) {
+                PointType controlPoint1 = closestNode->anchor.pt + PointType (5, 0);
+                PointType controlPoint2 = closestNode->anchor.pt + PointType (0, 5);
+                closestHandle->parent->setControlPt1 (controlPoint1);
+                closestHandle->parent->setControlPt2 (controlPoint2);
             }
         }
         else {
@@ -424,6 +474,19 @@ namespace aas
                 dist = modelPt.getDistanceFrom (node->control1.pt);
                 if (dist < closestHandleDist || closestHandle == nullptr) {
                     closestHandle = &node->control1;
+                    closestHandleDist = dist;
+                }
+            }
+
+            if (node->curveType == CurveType::Cubic) {
+                dist = modelPt.getDistanceFrom (node->control1.pt);
+                if (dist < closestHandleDist || closestHandle == nullptr) {
+                    closestHandle = &node->control1;
+                    closestHandleDist = dist;
+                }
+                dist = modelPt.getDistanceFrom (node->control2.pt);
+                if (dist < closestHandleDist || closestHandle == nullptr) {
+                    closestHandle = &node->control2;
                     closestHandleDist = dist;
                 }
             }
