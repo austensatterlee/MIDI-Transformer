@@ -44,6 +44,19 @@ namespace aas
             void setControlPt2(const PointType& pt) {
                 control2.pt = pt;
             }
+
+            ValueTree toValueTree(const juce::Identifier& id) const {
+                return {
+                    id, {
+                        {"curveType", static_cast<int> (curveType)}
+                    },
+                    {
+                        {"anchor", {{"x", anchor.pt.x}, {"y", anchor.pt.y}}},
+                        {"control1", {{"x", control1.pt.x}, {"y", control1.pt.y}}},
+                        {"control2", {{"x", control2.pt.x}, {"y", control2.pt.y}}}
+                    }
+                };
+            }
         };
 
         struct Handle {
@@ -64,12 +77,28 @@ namespace aas
             minY (minY),
             maxY (maxY),
             lastInputValue (static_cast<T> (0)) {
+            nodes.clear();
             nodes.emplace_back (std::make_shared<Node> (PointType{minX, minY}));
             nodes.emplace_back (std::make_shared<Node> (PointType{
                                                             minX + (maxX - minX) * static_cast<T> (0.5),
                                                             minY + (maxY - minY) * static_cast<T> (0.5)
                                                         }));
             nodes.emplace_back (std::make_shared<Node> (PointType{maxX, maxY}));
+        }
+
+        void fromValueTree(const ValueTree& tree) {
+            nodes.clear();
+            for (int i = 0; i < tree.getNumChildren(); i++) {
+                auto child = tree.getChild(i);
+                auto anchor = child.getChildWithName("anchor");
+                auto control1 = child.getChildWithName("control1");
+                auto control2 = child.getChildWithName("control2");
+                auto node = std::make_shared<Node>(PointType{ anchor.getProperty("x"), anchor.getProperty("y") });
+                node->curveType = static_cast<CurveType> (static_cast<int> (child.getProperty("curveType")));
+                node->setControlPt1(PointType{ control1.getProperty("x"), control1.getProperty("y") });
+                node->setControlPt2(PointType{ control2.getProperty("x"), control2.getProperty("y") });
+                nodes.push_back(node);
+            }
         }
 
         /**
@@ -126,10 +155,6 @@ namespace aas
                         return computeCubic (lastAnchorPoint, ctrlPoint1, ctrlPoint2, anchorPoint, finalT).y;
                     }
                 case CurveType::Quadratic:
-                    // B(t) = (1-t)^2 * P0 + 2(1-t) * t * P1 + t^2 * P2 , 0 < t < 1
-                    //       P0-P1 [+/-] sqrt(P1^2 - P0 * P2)
-                    // t =  -----------------------
-                    //         P0(P0 - 2P1 + P2)
                     {
                         const auto& ctrlPoint = lastNode.control1.pt;
                         float finalT = 0.0f;

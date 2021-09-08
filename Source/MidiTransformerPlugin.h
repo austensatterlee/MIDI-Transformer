@@ -96,8 +96,7 @@ public:
                                 {"height", 300},
                                 {"midiInput", 1},
                                 {"midiOutput", 1}
-                            },
-                            {}
+                            }
                         }, -1, nullptr);
         startTimerHz (60);
     }
@@ -140,14 +139,26 @@ public:
 
     void getStateInformation(MemoryBlock& destData) override
     {
-        if (auto xmlState = state.createXml())
+        ValueTree tmp = state.createCopy();
+
+        // Reset the nodes within the state ("curveState") and then re-add them
+        tmp.getChildWithName("curveState").removeAllChildren(nullptr);
+        for (size_t i = 0; i < curveEditorModel.nodes.size(); i++) {
+            const auto& node = curveEditorModel.nodes[i];
+            juce::Identifier id{"pt" + std::to_string (i)};
+            tmp.getChildWithName("curveState").addChild (node->toValueTree (id), -1, nullptr);
+        }
+
+        if (auto xmlState = tmp.createXml())
             copyXmlToBinary (*xmlState, destData);
     }
 
     void setStateInformation(const void* data, int size) override
     {
-        if (auto xmlState = getXmlFromBinary (data, size))
-            state = ValueTree::fromXml (*xmlState);
+        if (auto xmlState = getXmlFromBinary(data, size)) {
+            state = ValueTree::fromXml(*xmlState);
+            curveEditorModel.fromValueTree(state.getChildWithName("curveState"));
+        }
     }
 
 private:
