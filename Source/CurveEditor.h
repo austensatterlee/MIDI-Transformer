@@ -194,6 +194,8 @@ namespace aas
             lastInputValue.addListener (this);
         }
 
+        void drawReadableSingleLineText(Graphics& g, const typename CurveEditorModel<T>::PointType& baseline, const std::string& text,
+                                        int yThreshold = 50, int xThreshold = 50);
         void paint(Graphics& g) override;
         void mouseDown(const MouseEvent& event) override;
         void mouseDrag(const MouseEvent& event) override;
@@ -220,6 +222,27 @@ namespace aas
         CurveEditorModel<T>& model;
         Value lastInputValue;
     };
+
+    template <typename T>
+    void CurveEditor<T>::drawReadableSingleLineText(Graphics& g, const typename CurveEditorModel<T>::PointType& baseline,
+                                                    const std::string& text, int yThreshold, int xThreshold) {
+        juce::Justification textJustification (juce::Justification::centred);
+        int screenSpaceYOffset = 0;
+        int screenSpaceXOffset = 0;
+        if (static_cast<int> (baseline.y) < yThreshold) {
+            screenSpaceYOffset = static_cast<int> (g.getCurrentFont().getAscent());
+            textJustification = juce::Justification::right;
+        }
+        if (static_cast<int> (baseline.x) < xThreshold) {
+            textJustification = juce::Justification::left;
+            screenSpaceXOffset = 10;
+        }
+        else if (static_cast<int> (baseline.x) > getWidth() - xThreshold) {
+            textJustification = juce::Justification::right;
+        }
+        g.drawSingleLineText (text, static_cast<int> (baseline.x) + screenSpaceXOffset, static_cast<int> (baseline.y) + screenSpaceYOffset,
+                              textJustification);
+    }
 
     template <typename T>
     void CurveEditor<T>::paint(Graphics& g) {
@@ -291,19 +314,21 @@ namespace aas
 
         // Draw reference line from the mouse pointer to the curve
         const PointType screenSpaceMousePt = getMouseXYRelative().toFloat();
-        g.setColour (Colours::red);
-        if (contains (getMouseXYRelative())) {
+        if (!selectedHandle && contains (getMouseXYRelative())) {
             const auto modelSpaceMousePt = transformPointFromScreenSpace (screenSpaceMousePt);
             const auto modelSpaceCurvePt = PointType (modelSpaceMousePt.x, model.compute (modelSpaceMousePt.x));
             const auto screenSpaceCurvePt = transformPointToScreenSpace (modelSpaceCurvePt);
 
+            g.setColour (Colours::red);
             g.drawVerticalLine (static_cast<int> (screenSpaceMousePt.x),
                                 jmin (screenSpaceCurvePt.y, screenSpaceMousePt.y),
                                 jmax (screenSpaceCurvePt.y, screenSpaceMousePt.y));
 
+            // Draw reference text describing point on the curve // TODO: Move me to a general drawVisibleText method that automates justification
+            g.setColour (Colours::whitesmoke);
             std::ostringstream ostr;
             ostr << std::fixed << std::setprecision (0) << "[" << modelSpaceCurvePt.x << ", " << modelSpaceCurvePt.y << "]";
-            g.drawSingleLineText (ostr.str(), (int)screenSpaceMousePt.x, (int)screenSpaceMousePt.y);
+            drawReadableSingleLineText (g, screenSpaceMousePt, ostr.str());
         }
 
         // Draw reference line for most recent input/output
@@ -314,7 +339,7 @@ namespace aas
         g.drawVerticalLine (static_cast<int> (screenSpaceCurvePt.x), screenSpaceCurvePt.y, static_cast<float> (getHeight()));
         std::ostringstream ostr;
         ostr << std::fixed << std::setprecision (0) << "[" << inputValue << ", " << outputValue << "]";
-        g.drawSingleLineText (ostr.str(), (int)screenSpaceCurvePt.x, (int)screenSpaceCurvePt.y);
+        drawReadableSingleLineText (g, screenSpaceCurvePt, ostr.str());
 
 
         // Draw grid
@@ -387,11 +412,11 @@ namespace aas
             selectedPoint.setX (jlimit (model.minX + 1, model.maxX - 1, selectedPoint.getX()));
             selectedPoint.setY (jlimit (model.minY, model.maxY, selectedPoint.getY()));
 
-            // Lock the X position of the first and last points
-            if (selectedHandle->parent == model.nodes.front().get()) {
+            // Lock the X position of the first and last anchor points
+            if (selectedHandle->parent == model.nodes.front().get() && &selectedHandle->parent->anchor == selectedHandle) {
                 selectedPoint.setX (model.minX);
             }
-            else if (selectedHandle->parent == model.nodes.back().get()) {
+            else if (selectedHandle->parent == model.nodes.back().get() && &selectedHandle->parent->anchor == selectedHandle) {
                 selectedPoint.setX (model.maxX);
             }
 
@@ -434,12 +459,14 @@ namespace aas
                 closestNode->setControlPt1 (closestNode->anchor.pt);
             }
             else if (newType == CurveType::Quadratic && closestNode != model.nodes.back().get()) {
-                PointType controlPoint1 = closestNode->anchor.pt + PointType (5, 0);
+                constexpr int DEFAULT_CONTROL_DISTANCE = 5;
+                PointType controlPoint1 = closestNode->anchor.pt + PointType (DEFAULT_CONTROL_DISTANCE, 0);
                 closestHandle->parent->setControlPt1 (controlPoint1);
             }
             else if (newType == CurveType::Cubic && closestNode != model.nodes.back().get()) {
-                PointType controlPoint1 = closestNode->anchor.pt + PointType (5, 0);
-                PointType controlPoint2 = closestNode->anchor.pt + PointType (0, 5);
+                constexpr int DEFAULT_CONTROL_DISTANCE = 5;
+                PointType controlPoint1 = closestNode->anchor.pt + PointType (0, DEFAULT_CONTROL_DISTANCE);
+                PointType controlPoint2 = closestNode->anchor.pt + PointType (DEFAULT_CONTROL_DISTANCE, 0);
                 closestHandle->parent->setControlPt1 (controlPoint1);
                 closestHandle->parent->setControlPt2 (controlPoint2);
             }

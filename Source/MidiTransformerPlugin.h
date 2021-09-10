@@ -97,7 +97,7 @@ public:
                                 {"midiInput", 1},
                                 {"midiOutput", 1}
                             }
-                        }, -1, nullptr);
+                        }, -1, &undoManager);
         startTimerHz (60);
     }
 
@@ -139,17 +139,15 @@ public:
 
     void getStateInformation(MemoryBlock& destData) override
     {
-        ValueTree tmp = state.createCopy();
-
         // Reset the nodes within the state ("curveState") and then re-add them
-        tmp.getChildWithName("curveState").removeAllChildren(nullptr);
+        state.getChildWithName("curveState").removeAllChildren(&undoManager);
         for (size_t i = 0; i < curveEditorModel.nodes.size(); i++) {
             const auto& node = curveEditorModel.nodes[i];
             juce::Identifier id{"pt" + std::to_string (i)};
-            tmp.getChildWithName("curveState").addChild (node->toValueTree (id), -1, nullptr);
+            state.getChildWithName("curveState").addChild (node->toValueTree (id), -1, &undoManager);
         }
 
-        if (auto xmlState = tmp.createXml())
+        if (auto xmlState = state.createXml())
             copyXmlToBinary (*xmlState, destData);
     }
 
@@ -180,8 +178,8 @@ private:
             addAndMakeVisible (midiOutputDropdown);
 
             setResizable (true, true);
-            lastUIWidth.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("width", nullptr));
-            lastUIHeight.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("height", nullptr));
+            lastUIWidth.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("width", &owner.undoManager));
+            lastUIHeight.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("height", &owner.undoManager));
             setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
 
             lastUIWidth.addListener (this);
@@ -219,8 +217,9 @@ private:
                 midiOutputDropdown.addItem (controllerName, i + 1);
             }
 
-            lastMidiInput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiInput", nullptr));
-            lastMidiOutput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiOutput", nullptr));
+            // Connect dropdowns to the AudioProcessor's state object
+            lastMidiInput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiInput", &owner.undoManager));
+            lastMidiOutput.referTo (owner.state.getChildWithName ("uiState").getPropertyAsValue ("midiOutput", &owner.undoManager));
             midiInputDropdown.setSelectedId (static_cast<int> (lastMidiInput.getValue()));
             midiOutputDropdown.setSelectedId (static_cast<int> (lastMidiOutput.getValue()));
         }
@@ -332,6 +331,7 @@ private:
     }
 
     ValueTree state{"state"};
+    UndoManager undoManager;
     MidiQueue queue;
     // The data to show in the UI. We keep it around in the processor so that the view is persistent even when the plugin UI is closed and reopened.
     DropdownListModel midiOutputModel;
