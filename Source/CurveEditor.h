@@ -195,7 +195,7 @@ namespace aas
         }
 
         void drawReadableSingleLineText(Graphics& g, const typename CurveEditorModel<T>::PointType& baseline, const std::string& text,
-                                        int yThreshold = 50, int xThreshold = 50);
+                                        int yThreshold = 25, int xThreshold = 25);
         void paint(Graphics& g) override;
         void mouseDown(const MouseEvent& event) override;
         void mouseDrag(const MouseEvent& event) override;
@@ -209,7 +209,7 @@ namespace aas
         /**
          * \brief Get a reference to the handle closest to the given point (in screen space)
          */
-        Handle* getClosestHandle(const PointType& screenPt);
+        Handle* getClosestHandle(const PointType& screenPt, T thresholdDistance = -1);
 
     private:
         PointType transformPointToScreenSpace(const PointType& p) const;
@@ -249,20 +249,34 @@ namespace aas
         g.setColour (Colours::black);
         g.fillRect (0, 0, getWidth(), getHeight());
 
-        auto drawHandle = [this, &g](const Handle& handle)
+        // Record mouse coordinates in screen/model space
+        const PointType screenSpaceMousePt = getMouseXYRelative().toFloat();
+        const PointType modelSpaceMousePt = transformPointFromScreenSpace(screenSpaceMousePt);
+
+        // Mark handle currently being hovered over
+        Handle* hoveredHandle = getClosestHandle(screenSpaceMousePt, DISTANCE_THRESHOLD);
+
+        auto drawHandle = [this, &g, &hoveredHandle](const Handle& handle)
         {
             auto transformedHandlePoint = transformPointToScreenSpace (handle.pt);
             if (selectedHandle == &handle) {
-                g.setColour (Colours::red);
+                g.setColour (Colours::cyan);
                 g.fillEllipse (transformedHandlePoint.x - POINT_SIZE * 0.5f,
                                transformedHandlePoint.y - POINT_SIZE * 0.5f,
                                POINT_SIZE, POINT_SIZE);
             }
             else {
-                g.setColour (Colours::goldenrod);
-                g.drawEllipse (transformedHandlePoint.x - POINT_SIZE * 0.5f,
-                               transformedHandlePoint.y - POINT_SIZE * 0.5f,
-                               POINT_SIZE, POINT_SIZE, 3.0f);
+                if (selectedHandle == nullptr && hoveredHandle == &handle) {
+                    g.setColour(Colours::goldenrod);
+                    g.drawEllipse(transformedHandlePoint.x - POINT_SIZE * 0.5f,
+                                  transformedHandlePoint.y - POINT_SIZE * 0.5f,
+                                  POINT_SIZE, POINT_SIZE, 2.0f);
+                } else {
+                    g.setColour(Colours::darkgoldenrod);
+                    g.drawEllipse(transformedHandlePoint.x - POINT_SIZE * 0.5f,
+                                  transformedHandlePoint.y - POINT_SIZE * 0.5f,
+                                  POINT_SIZE, POINT_SIZE, 1.0f);
+                }
             }
             return transformedHandlePoint;
         };
@@ -273,12 +287,15 @@ namespace aas
 
             if (node.curveType == CurveType::Quadratic) {
                 auto transformedControlPoint = drawHandle (node.control1);
+                g.setColour(Colours::darkgoldenrod);
                 g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint.x, transformedControlPoint.y);
             }
             else if (node.curveType == CurveType::Cubic) {
                 auto transformedControlPoint1 = drawHandle (node.control1);
+                g.setColour(Colours::darkgoldenrod);
                 g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint1.x, transformedControlPoint1.y);
                 auto transformedControlPoint2 = drawHandle (node.control2);
+                g.setColour(Colours::darkgoldenrod);
                 g.drawLine (transformedAnchorPoint.x, transformedAnchorPoint.y, transformedControlPoint2.x, transformedControlPoint2.y);
             }
         };
@@ -313,39 +330,47 @@ namespace aas
         g.strokePath (curve, PathStrokeType (1.0f));
 
         // Draw reference line from the mouse pointer to the curve
-        const PointType screenSpaceMousePt = getMouseXYRelative().toFloat();
         if (!selectedHandle && contains (getMouseXYRelative())) {
-            const auto modelSpaceMousePt = transformPointFromScreenSpace (screenSpaceMousePt);
             const auto modelSpaceCurvePt = PointType (modelSpaceMousePt.x, model.compute (modelSpaceMousePt.x));
             const auto screenSpaceCurvePt = transformPointToScreenSpace (modelSpaceCurvePt);
 
-            g.setColour (Colours::red);
+            g.setColour (Colours::firebrick);
             g.drawVerticalLine (static_cast<int> (screenSpaceMousePt.x),
                                 jmin (screenSpaceCurvePt.y, screenSpaceMousePt.y),
                                 jmax (screenSpaceCurvePt.y, screenSpaceMousePt.y));
 
-            // Draw reference text describing point on the curve // TODO: Move me to a general drawVisibleText method that automates justification
-            g.setColour (Colours::whitesmoke);
+            // Draw reference text describing point on the curve
+            g.setColour (Colours::firebrick);
             std::ostringstream ostr;
             ostr << std::fixed << std::setprecision (0) << "[" << modelSpaceCurvePt.x << ", " << modelSpaceCurvePt.y << "]";
-            drawReadableSingleLineText (g, screenSpaceMousePt, ostr.str());
+            drawReadableSingleLineText (g, screenSpaceMousePt + PointType(0, g.getCurrentFont().getAscent() + 5), ostr.str(), 25 + g.getCurrentFont().getAscent() + 5);
+        }
+
+        // Draw reference text describing cursor coordinate
+        {
+            g.setColour(Colours::slategrey);
+            std::ostringstream ostr;
+            ostr << std::fixed << std::setprecision(0) << "(" << modelSpaceMousePt.x << ", " << modelSpaceMousePt.y << ")";
+            drawReadableSingleLineText(g, screenSpaceMousePt, ostr.str());
         }
 
         // Draw reference line for most recent input/output
-        g.setColour (Colours::lightblue);
-        T inputValue = lastInputValue.getValue();
-        T outputValue = model.compute (inputValue);
-        const auto screenSpaceCurvePt = transformPointToScreenSpace (PointType (inputValue, outputValue));
-        g.drawVerticalLine (static_cast<int> (screenSpaceCurvePt.x), screenSpaceCurvePt.y, static_cast<float> (getHeight()));
-        std::ostringstream ostr;
-        ostr << std::fixed << std::setprecision (0) << "[" << inputValue << ", " << outputValue << "]";
-        drawReadableSingleLineText (g, screenSpaceCurvePt, ostr.str());
+        {
+            g.setColour(Colours::lightblue);
+            T inputValue = lastInputValue.getValue();
+            T outputValue = model.compute(inputValue);
+            const auto screenSpaceCurvePt = transformPointToScreenSpace(PointType(inputValue, outputValue));
+            g.drawVerticalLine(static_cast<int> (screenSpaceCurvePt.x), screenSpaceCurvePt.y, static_cast<float> (getHeight()));
+            std::ostringstream ostr;
+            ostr << std::fixed << std::setprecision(0) << "[" << inputValue << ", " << outputValue << "]";
+            drawReadableSingleLineText(g, screenSpaceCurvePt, ostr.str());
+        }
 
 
         // Draw grid
         auto numXTicks = 10; // TODO: Make these editable parameters
         auto numYTicks = 10;
-        const Colour slightWhite = Colour::fromRGBA (200, 200, 200, 100);
+        const Colour slightWhite = Colour::fromRGBA (255, 255, 255, 50);
         g.setColour (slightWhite);
         for (auto i = 0; i < numXTicks; i++) {
             T currX = (model.maxX - model.minX) / static_cast<T> (numXTicks) * static_cast<T> (i) + model.minX;
@@ -363,37 +388,31 @@ namespace aas
     void CurveEditor<T>::mouseDown(const MouseEvent& event) {
         jassert (!model.nodes.empty());
 
-        Handle* closestHandle = getClosestHandle (event.mouseDownPosition);
-        if (!closestHandle)
+        Handle* closestHandle = getClosestHandle (event.mouseDownPosition, DISTANCE_THRESHOLD);
+        if (!closestHandle) {
+            selectedHandle = nullptr;
             return;
+        }
 
         const PointType& closestPt = closestHandle->pt;
 
-        auto closestPointDist = transformPointToScreenSpace (closestPt).getDistanceFrom (event.mouseDownPosition);
-
-
-        if (closestPointDist < DISTANCE_THRESHOLD) {
-            if (event.mods.isLeftButtonDown()) {
-                selectedHandle = closestHandle;
-            }
-            else if (event.mods.isRightButtonDown()) {
-                if (closestHandle->parent != model.nodes.front().get() && closestHandle->parent != model.nodes.back().get()) {
-                    int toErase = -1;
-                    for (int i = 0; i < model.nodes.size(); i++) {
-                        if (model.nodes[i].get() == closestHandle->parent) {
-                            toErase = i;
-                            break;
-                        }
-                    }
-                    if (toErase != -1) {
-                        model.nodes.erase (model.nodes.begin() + toErase);
-                    }
-                    selectedHandle = nullptr;
-                }
-            }
+        if (event.mods.isLeftButtonDown()) {
+            selectedHandle = closestHandle;
         }
-        else {
-            selectedHandle = nullptr;
+        else if (event.mods.isRightButtonDown()) {
+            if (closestHandle->parent != model.nodes.front().get() && closestHandle->parent != model.nodes.back().get()) {
+                int toErase = -1;
+                for (int i = 0; i < model.nodes.size(); i++) {
+                    if (model.nodes[i].get() == closestHandle->parent) {
+                        toErase = i;
+                        break;
+                    }
+                }
+                if (toErase != -1) {
+                    model.nodes.erase (model.nodes.begin() + toErase);
+                }
+                selectedHandle = nullptr;
+            }
         }
 
         repaint();
@@ -436,21 +455,25 @@ namespace aas
     template <typename T>
     void CurveEditor<T>::mouseUp(const MouseEvent& event) {
         selectedHandle = nullptr;
+        repaint();
     }
 
     template <typename T>
     void CurveEditor<T>::mouseDoubleClick(const MouseEvent& event) {
         const PointType mousePt = event.mouseDownPosition;
-        Handle* closestHandle = getClosestHandle (mousePt);
-        if (!closestHandle)
+        Handle* closestHandle = getClosestHandle (mousePt, DISTANCE_THRESHOLD);
+        if (!closestHandle) {
+            const PointType modelSpaceMousePt = transformPointFromScreenSpace(mousePt);
+            addPoint(modelSpaceMousePt);
             return;
+        }
 
         const PointType& closestPt = closestHandle->pt;
         Node* closestNode = closestHandle->parent;
 
         auto closestPointDist = transformPointToScreenSpace (closestPt).getDistanceFrom (mousePt);
 
-        if (closestPointDist < DISTANCE_THRESHOLD && closestHandle == &closestNode->anchor) {
+        if (closestHandle == &closestNode->anchor) {
             CurveType newType = static_cast<CurveType> ((static_cast<int> (closestNode->curveType) + 1) % CurveEditorModel<
                 T>::CurveTypeCount);
             closestNode->curveType = newType;
@@ -470,10 +493,6 @@ namespace aas
                 closestHandle->parent->setControlPt1 (controlPoint1);
                 closestHandle->parent->setControlPt2 (controlPoint2);
             }
-        }
-        else {
-            const PointType modelSpaceMousePt = transformPointFromScreenSpace (mousePt);
-            addPoint (modelSpaceMousePt);
         }
     }
 
@@ -509,7 +528,7 @@ namespace aas
     }
 
     template <typename T>
-    typename CurveEditor<T>::Handle* CurveEditor<T>::getClosestHandle(const PointType& screenPt) {
+    typename CurveEditor<T>::Handle* CurveEditor<T>::getClosestHandle(const PointType& screenPt, T thresholdDistance) {
         jassert (!model.nodes.empty());
 
         auto modelPt = transformPointFromScreenSpace (screenPt);
@@ -544,7 +563,12 @@ namespace aas
             }
         }
 
-        return closestHandle;
+        if (thresholdDistance > 0 && screenPt.getDistanceFrom (transformPointToScreenSpace (closestHandle->pt)) > thresholdDistance) {
+            return nullptr;
+        }
+        else {
+            return closestHandle;
+        }
     }
 
     template <typename T>
