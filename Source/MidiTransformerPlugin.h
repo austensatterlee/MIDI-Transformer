@@ -54,18 +54,15 @@
 
 #include "CurveEditor.h"
 
-class MidiQueue
-{
+class MidiQueue {
 public:
-    void push(const MidiBuffer& buffer)
-    {
+    void push(const MidiBuffer& buffer) {
         for (const auto metadata : buffer)
             fifo.write (1).forEach ([&](int dest) { messages[(size_t)dest] = metadata.getMessage(); });
     }
 
     template <typename OutputIt>
-    void pop(OutputIt out)
-    {
+    void pop(OutputIt out) {
         fifo.read (fifo.getNumReady()).forEach ([&](int source) { *out++ = messages[(size_t)source]; });
     }
 
@@ -75,21 +72,17 @@ private:
     std::vector<MidiMessage> messages = std::vector<MidiMessage> (queueSize);
 };
 
-struct DropdownListModel
-{
+struct DropdownListModel {
     int selectedItemId;
 };
 
 //==============================================================================
 class MidiTransformerPluginProcessor : public AudioProcessor,
-                                       private Timer
-{
+                                       private Timer {
 public:
-    MidiTransformerPluginProcessor()
-        :
+    MidiTransformerPluginProcessor() :
         AudioProcessor (getBusesLayout()),
-        curveEditorModel (0.0f, 127.0f, 0.0f, 127.0f)
-    {
+        curveEditorModel (0.0f, 127.0f, 0.0f, 127.0f) {
         state.addChild ({
                             "uiState", {
                                 {"width", 500},
@@ -119,60 +112,47 @@ public:
     int getNumPrograms() override { return 0; }
     int getCurrentProgram() override { return 0; }
 
-    void setCurrentProgram(int) override
-    {
-    }
+    void setCurrentProgram(int) override { }
 
     const String getProgramName(int) override { return {}; }
 
-    void changeProgramName(int, const String&) override
-    {
-    }
+    void changeProgramName(int, const String&) override { }
 
-    void prepareToPlay(double, int) override
-    {
-    }
+    void prepareToPlay(double, int) override { }
 
-    void releaseResources() override
-    {
-    }
+    void releaseResources() override { }
 
-    void getStateInformation(MemoryBlock& destData) override
-    {
+    void getStateInformation(MemoryBlock& destData) override {
         // Reset the nodes within the state ("curveState") and then re-add them
-        state.getChildWithName("curveState").removeAllChildren(&undoManager);
+        state.getChildWithName ("curveState").removeAllChildren (&undoManager);
         for (size_t i = 0; i < curveEditorModel.nodes.size(); i++) {
             const auto& node = curveEditorModel.nodes[i];
             juce::Identifier id{"pt" + std::to_string (i)};
-            state.getChildWithName("curveState").addChild (node->toValueTree (id), -1, &undoManager);
+            state.getChildWithName ("curveState").addChild (node->toValueTree (id), -1, &undoManager);
         }
 
         if (auto xmlState = state.createXml())
             copyXmlToBinary (*xmlState, destData);
     }
 
-    void setStateInformation(const void* data, int size) override
-    {
-        if (auto xmlState = getXmlFromBinary(data, size)) {
-            state = ValueTree::fromXml(*xmlState);
-            curveEditorModel.fromValueTree(state.getChildWithName("curveState"));
+    void setStateInformation(const void* data, int size) override {
+        if (auto xmlState = getXmlFromBinary (data, size)) {
+            state = ValueTree::fromXml (*xmlState);
+            curveEditorModel.fromValueTree (state.getChildWithName ("curveState"));
         }
     }
 
 private:
     class Editor : public AudioProcessorEditor,
-                   private Value::Listener
-    {
+                   private Value::Listener {
     public:
         static const int VELOCITY_DROPDOWN_ID = -1;
         static const int PITCH_DROPDOWN_ID = -2;
 
-        explicit Editor(MidiTransformerPluginProcessor& ownerIn)
-            :
+        explicit Editor(MidiTransformerPluginProcessor& ownerIn) :
             AudioProcessorEditor (ownerIn),
             owner (ownerIn),
-            curveEditor (ownerIn.curveEditorModel)
-        {
+            curveEditor (ownerIn.curveEditorModel) {
             addAndMakeVisible (curveEditor);
             addAndMakeVisible (midiInputDropdown);
             addAndMakeVisible (midiOutputDropdown);
@@ -200,17 +180,15 @@ private:
             // Fill input/output midi dropdowns
             midiInputDropdown.addItem ("Velocity", VELOCITY_DROPDOWN_ID);
             midiInputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
+            midiOutputDropdown.addItem ("Velocity", VELOCITY_DROPDOWN_ID);
             midiOutputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
-            for (auto i = 0; i < 128; i++)
-            {
+            for (auto i = 0; i < 128; i++) {
                 const auto* const rawControllerName = MidiMessage::getControllerName (i);
                 std::string controllerName;
-                if (rawControllerName)
-                {
+                if (rawControllerName) {
                     controllerName = std::string (rawControllerName) + "(CC " + std::to_string (i) + ")";
                 }
-                else
-                {
+                else {
                     controllerName = "CC " + std::to_string (i);
                 }
                 midiInputDropdown.addItem (controllerName, i + 1);
@@ -224,13 +202,11 @@ private:
             midiOutputDropdown.setSelectedId (static_cast<int> (lastMidiOutput.getValue()));
         }
 
-        void paint(Graphics& g) override
-        {
+        void paint(Graphics& g) override {
             g.fillAll (getLookAndFeel().findColour (ResizableWindow::backgroundColourId));
         }
 
-        void resized() override
-        {
+        void resized() override {
             auto bounds = getLocalBounds();
 
             const auto inputMidiBounds = bounds.removeFromTop (50);
@@ -244,8 +220,7 @@ private:
         }
 
     private:
-        void valueChanged(Value& value) override
-        {
+        void valueChanged(Value& value) override {
             if (value == lastUIWidth || value == lastUIHeight)
                 setSize (lastUIWidth.getValue(), lastUIHeight.getValue());
         }
@@ -260,43 +235,39 @@ private:
         Value lastUIWidth, lastUIHeight;
     };
 
-    void timerCallback() override
-    {
+    void timerCallback() override {
         std::vector<MidiMessage> messages;
         queue.pop (std::back_inserter (messages));
     }
 
     template <typename Element>
-    void process(AudioBuffer<Element>& audio, MidiBuffer& midi)
-    {
+    void process(AudioBuffer<Element>& audio, MidiBuffer& midi) {
         using NumericType = decltype(curveEditorModel)::NumericType;
         const int CC_IN = midiInputModel.selectedItemId - 1; // TODO: May have threading issues
         const int CC_OUT = midiOutputModel.selectedItemId - 1;
 
         MidiBuffer newMidiBuffer;
-        for (auto it : midi)
-        {
+        for (auto it : midi) {
             MidiMessage msg = it.getMessage();
             const auto timestamp = msg.getTimeStamp();
             const auto sampleNumber = static_cast<int> (timestamp * getSampleRate());
             NumericType inputValue = 0;
             NumericType outputValue = 0;
-            if (msg.isController() && msg.getControllerNumber() == CC_IN)
-            {
+            if (msg.isController() && msg.getControllerNumber() == CC_IN) {
                 inputValue = static_cast<NumericType> (msg.getControllerValue());
             }
-            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn (false))
-            {
+            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn (false)) {
                 inputValue = static_cast<NumericType> (msg.getVelocity());
                 newMidiBuffer.addEvent (msg, sampleNumber);
             }
-            else if (CC_IN == Editor::PITCH_DROPDOWN_ID - 1 && msg.isPitchWheel())
-            {
+            else if (CC_IN == Editor::PITCH_DROPDOWN_ID - 1 && msg.isPitchWheel()) {
                 inputValue = (static_cast<NumericType> (msg.getPitchWheelValue()) / static_cast<NumericType> (1 << 14)) *
                         (curveEditorModel.maxY - curveEditorModel.minY);
             }
-            else
-            {
+            else if (CC_OUT == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn(true)) {
+                inputValue = curveEditorModel.lastInputValue.getValue();
+            }
+            else {
                 newMidiBuffer.addEvent (msg, sampleNumber);
                 continue;
             }
@@ -306,14 +277,16 @@ private:
             outputValue = curveEditorModel.compute (static_cast<float> (inputValue));
 
             MidiMessage newMsg;
-            if (CC_OUT >= 0)
-            {
+            if (CC_OUT >= 0) {
                 newMsg = juce::MidiMessage::controllerEvent (msg.getChannel(), CC_OUT, static_cast<int> (outputValue));
             }
-            else if (CC_OUT == Editor::PITCH_DROPDOWN_ID - 1)
-            {
+            else if (CC_OUT == Editor::PITCH_DROPDOWN_ID - 1) {
                 outputValue = (outputValue * (1 << 14)) / (curveEditorModel.maxY - curveEditorModel.minY);
                 newMsg = juce::MidiMessage::pitchWheel (msg.getChannel(), static_cast<int> (outputValue));
+            }
+            else if (CC_OUT == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn (true)) {
+                newMsg = juce::MidiMessage (msg);
+                newMsg.setVelocity ((outputValue - curveEditorModel.minY) / (curveEditorModel.maxY - curveEditorModel.minY));
             }
 
             newMidiBuffer.addEvent (newMsg, sampleNumber);
@@ -322,8 +295,7 @@ private:
         queue.push (midi);
     }
 
-    static BusesProperties getBusesLayout()
-    {
+    static BusesProperties getBusesLayout() {
         // Live doesn't like to load midi-only plugins, so we add an audio output there.
         return PluginHostType().isAbletonLive()
                    ? BusesProperties().withOutput ("out", AudioChannelSet::stereo())

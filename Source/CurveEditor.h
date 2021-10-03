@@ -210,6 +210,8 @@ namespace aas
          * \brief Get a reference to the handle closest to the given point (in screen space)
          */
         Handle* getClosestHandle(const PointType& screenPt, T thresholdDistance = -1);
+        std::shared_ptr<Node> getNextNode(const Node& fromNode);
+        std::shared_ptr<Node> getPrevNode(const Node& fromNode);
 
     private:
         PointType transformPointToScreenSpace(const PointType& p) const;
@@ -436,16 +438,49 @@ namespace aas
                 selectedPoint.setX (model.minX);
             }
             else if (selectedHandle->parent == model.nodes.back().get() && &selectedHandle->parent->anchor == selectedHandle) {
-                selectedPoint.setX (model.maxX);
+                selectedPoint.setX(model.maxX);
             }
 
+            std::shared_ptr<Node> nextNode = getNextNode(*selectedHandle->parent);
+            std::shared_ptr<Node> prevNode = getPrevNode(*selectedHandle->parent);
             if (selectedHandle == &selectedHandle->parent->anchor) {
-                selectedHandle->parent->setAnchorPt (selectedPoint);
+                // Push handles of prev/next nodes when moving an anchor
+                // Limit anchor so it doesn't cross prev/next anchors
+                if (prevNode) {
+                    selectedPoint.setX(jmax(selectedPoint.getX(), prevNode->anchor.pt.getX()));
+                    selectedHandle->parent->control1.pt.setX(jmax(selectedHandle->parent->control1.pt.getX(), prevNode->anchor.pt.getX()));
+                    selectedHandle->parent->control2.pt.setX(jmax(selectedHandle->parent->control2.pt.getX(), prevNode->anchor.pt.getX()));
+                    Handle& ctrl1 = prevNode->control1;
+                    ctrl1.setX(jmin(ctrl1.pt.getX(), selectedPoint.getX()));
+                    Handle& ctrl2 = prevNode->control2;
+                    ctrl2.setX(jmin(ctrl2.pt.getX(), selectedPoint.getX()));                    
+                }
+                if (nextNode) {
+                    selectedPoint.setX(jmin(selectedPoint.getX(), nextNode->anchor.pt.getX()));
+                    selectedHandle->parent->control1.pt.setX(jmin(selectedHandle->parent->control1.pt.getX(), nextNode->anchor.pt.getX()));
+                    selectedHandle->parent->control2.pt.setX(jmin(selectedHandle->parent->control2.pt.getX(), nextNode->anchor.pt.getX()));
+                    Handle& ctrl1 = nextNode->control1;
+                    ctrl1.setX(jmax(ctrl1.pt.getX(), selectedPoint.getX()));
+                    Handle& ctrl2 = nextNode->control2;
+                    ctrl2.setX(jmax(ctrl2.pt.getX(), selectedPoint.getX()));
+                }
+                selectedHandle->parent->setAnchorPt(selectedPoint);
             }
-            else if (selectedHandle == &selectedHandle->parent->control1 && (curveType == CurveType::Quadratic || curveType == CurveType::Cubic)) {
-                selectedHandle->parent->setControlPt1 (selectedPoint);
-            } else if (selectedHandle == &selectedHandle->parent->control2 && curveType == CurveType::Cubic) {
-                selectedHandle->parent->setControlPt2(selectedPoint);
+            else if (curveType == CurveType::Quadratic || curveType == CurveType::Cubic) {
+                // Lock handles to be within the X coordinates of the anchor points
+                T minX = selectedHandle->parent->anchor.pt.getX();
+                selectedPoint.setX (jmax (minX, selectedPoint.getX()));
+                if (nextNode) {
+                    T maxX = nextNode->anchor.pt.getX();
+                    selectedPoint.setX (jmin (maxX, selectedPoint.getX()));
+                }
+
+                if (selectedHandle == &selectedHandle->parent->control1) {
+                    selectedHandle->parent->setControlPt1 (selectedPoint);
+                }
+                else if (selectedHandle == &selectedHandle->parent->control2 && curveType == CurveType::Cubic) {
+                    selectedHandle->parent->setControlPt2 (selectedPoint);
+                }
             }
 
             repaint();
@@ -569,6 +604,26 @@ namespace aas
         else {
             return closestHandle;
         }
+    }
+
+    template <typename T>
+    std::shared_ptr<typename CurveEditor<T>::Node> CurveEditor<T>::getNextNode(const typename CurveEditor<T>::Node& fromNode) {
+        for (size_t i = 0; i < model.nodes.size()-1;i++) {
+            if (model.nodes[i].get() == &fromNode) {
+                return model.nodes[i + 1];
+            }
+        }
+        return nullptr;
+    }
+
+    template <typename T>
+    std::shared_ptr<typename CurveEditor<T>::Node> CurveEditor<T>::getPrevNode(const typename CurveEditor<T>::Node& fromNode) {
+        for (size_t i = 1; i < model.nodes.size(); i++) {
+            if (model.nodes[i].get() == &fromNode) {
+                return model.nodes[i - 1];
+            }
+        }
+        return nullptr;
     }
 
     template <typename T>
