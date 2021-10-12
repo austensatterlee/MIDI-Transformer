@@ -179,9 +179,9 @@ private:
 
             // Fill input/output midi dropdowns
             midiInputDropdown.addItem ("Velocity", VELOCITY_DROPDOWN_ID);
-            midiInputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
+            midiInputDropdown.addItem ("Pitch Bend", PITCH_DROPDOWN_ID);
             midiOutputDropdown.addItem ("Velocity", VELOCITY_DROPDOWN_ID);
-            midiOutputDropdown.addItem ("Pitch", PITCH_DROPDOWN_ID);
+            midiOutputDropdown.addItem ("Pitch Bend", PITCH_DROPDOWN_ID);
             for (auto i = 0; i < 128; i++) {
                 const auto* const rawControllerName = MidiMessage::getControllerName (i);
                 std::string controllerName;
@@ -256,9 +256,12 @@ private:
             if (msg.isController() && msg.getControllerNumber() == CC_IN) {
                 inputValue = static_cast<NumericType> (msg.getControllerValue());
             }
-            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn (false)) {
+            else if (CC_IN == Editor::VELOCITY_DROPDOWN_ID - 1 && msg.isNoteOn (true)) {
                 inputValue = static_cast<NumericType> (msg.getVelocity());
-                newMidiBuffer.addEvent (msg, sampleNumber);
+                // Don't re-add note on messages if we need to modify velocity
+                if (CC_OUT != Editor::VELOCITY_DROPDOWN_ID - 1) {
+                    newMidiBuffer.addEvent(msg, sampleNumber);
+                }
             }
             else if (CC_IN == Editor::PITCH_DROPDOWN_ID - 1 && msg.isPitchWheel()) {
                 inputValue = (static_cast<NumericType> (msg.getPitchWheelValue()) / static_cast<NumericType> (1 << 14)) *
