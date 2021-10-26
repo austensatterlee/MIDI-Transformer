@@ -87,17 +87,19 @@ namespace aas
         }
 
         void fromValueTree(const ValueTree& tree) {
-            nodes.clear();
-            for (int i = 0; i < tree.getNumChildren(); i++) {
-                auto child = tree.getChild(i);
-                auto anchor = child.getChildWithName("anchor");
-                auto control1 = child.getChildWithName("control1");
-                auto control2 = child.getChildWithName("control2");
-                auto node = std::make_shared<Node>(PointType{ anchor.getProperty("x"), anchor.getProperty("y") });
-                node->curveType = static_cast<CurveType> (static_cast<int> (child.getProperty("curveType")));
-                node->setControlPt1(PointType{ control1.getProperty("x"), control1.getProperty("y") });
-                node->setControlPt2(PointType{ control2.getProperty("x"), control2.getProperty("y") });
-                nodes.push_back(node);
+            if (tree.getNumChildren()) {
+                nodes.clear();
+                for (int i = 0; i < tree.getNumChildren(); i++) {
+                    auto child = tree.getChild(i);
+                    auto anchor = child.getChildWithName("anchor");
+                    auto control1 = child.getChildWithName("control1");
+                    auto control2 = child.getChildWithName("control2");
+                    auto node = std::make_shared<Node>(PointType{ anchor.getProperty("x"), anchor.getProperty("y") });
+                    node->curveType = static_cast<CurveType> (static_cast<int> (child.getProperty("curveType")));
+                    node->setControlPt1(PointType{ control1.getProperty("x"), control1.getProperty("y") });
+                    node->setControlPt2(PointType{ control2.getProperty("x"), control2.getProperty("y") });
+                    nodes.push_back(node);
+                }
             }
         }
 
