@@ -1,7 +1,7 @@
 ## Download
 Platform | Link
 ---------|-------
-Windows x64 | <a href="https://static.kvraudio.com/files/4296/midi-transformer.zip">VST3</a>
+Windows x64 | <a href="https://static.kvraudio.com/files/4296/midi-transformer-0_9_1.zip">VST3</a>
 
 # MIDI-Transformer
 A free VST for transforming and bending MIDI inputs
